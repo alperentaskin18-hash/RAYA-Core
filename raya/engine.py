@@ -2,6 +2,7 @@
 
 import contextlib
 import http.client
+import io
 import json
 import socket
 import threading
@@ -342,6 +343,40 @@ def cancel(profile, token):
     }
 
 
+class _ResponseReader(io.RawIOBase):
+    """Poll cancellation between socket reads, including partial HTTP/SSE lines."""
+
+    def __init__(self, sock, socket_file, is_interrupted):
+        self.sock = sock
+        # HTTPConnection can close its copy once it sees Connection: close.
+        # Keep HTTPResponse's socket file alive until its new buffer closes.
+        self.socket_file = socket_file
+        self.is_interrupted = is_interrupted
+        self.idle_timeout = sock.gettimeout()
+        sock.settimeout(0.1)
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        deadline = time.monotonic() + self.idle_timeout
+        while not self.is_interrupted():
+            try:
+                # A timeout on socket.makefile() poisons subsequent reads.
+                # Read the socket directly; BufferedReader retains partial lines.
+                return self.sock.recv_into(buffer)
+            except TimeoutError:
+                if time.monotonic() >= deadline:
+                    raise
+        raise RuntimeError("provider interrupted")
+
+    def close(self):
+        try:
+            self.socket_file.close()
+        finally:
+            super().close()
+
+
 @contextlib.contextmanager
 def connection(profile, token, route):
     host, _ = wire.HOSTS[route["provider"]]
@@ -355,12 +390,38 @@ def connection(profile, token, route):
     interrupted = threading.Event()
     deadline = time.monotonic() + 60
 
+    def check_cancel(p):
+        if p.get("ai_cancel", token) or time.monotonic() >= deadline:
+            interrupted.set()
+
+    def response_factory(sock, *args, **kwargs):
+        # The sending thread can block in connect/write. Once reading begins,
+        # the reader itself can observe cancellation on its own profile handle.
+        done.set()
+        next_check = 0.0
+
+        def is_interrupted():
+            nonlocal next_check
+            now = time.monotonic()
+            if now >= next_check:
+                check_cancel(profile)
+                next_check = now + 0.1
+            return interrupted.is_set()
+
+        response = http.client.HTTPResponse(sock, *args, **kwargs)
+        response.fp = io.BufferedReader(
+            _ResponseReader(sock, response.fp, is_interrupted)
+        )
+        return response
+
+    conn.response_class = response_factory
+
     def watch():
         p = Profile(profile.directory, read_only=True)
         try:
             while not done.wait(0.1):
-                if p.get("ai_cancel", token) or time.monotonic() >= deadline:
-                    interrupted.set()
+                check_cancel(p)
+                if interrupted.is_set():
                     sock = conn.sock
                     if sock is not None:
                         with contextlib.suppress(OSError):
@@ -416,13 +477,7 @@ def exchange(profile, token, route, content, reply):
         conn.request(
             "POST", path, encode(wire.payload(route, content)).encode(), headers
         )
-        # Retain the connected socket until the response has been consumed, including
-        # Connection: close responses where HTTPConnection drops its socket reference.
-        sock = conn.sock
-        response = conn.getresponse()
-        if conn.sock is None:
-            conn.sock = sock
-        with response:
+        with conn.getresponse() as response:
             if response.status != 200:
                 raise Rejected(response.status, response.getheader("Retry-After"))
             accept = reply.anthropic if anthropic else reply.chat

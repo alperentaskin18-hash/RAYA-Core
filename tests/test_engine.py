@@ -4,6 +4,7 @@ import http.client
 import json
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -112,6 +113,13 @@ class Fixture(BaseHTTPRequestHandler):
         def event(data):
             self.wfile.write(b"data: " + json.dumps(data).encode() + b"\r\n\r\n")
             self.wfile.flush()
+
+        if mode == "paused_stream":
+            # Split an SSE line across multiple cancellation polling intervals.
+            self.wfile.write(b'data: {"choices":')
+            self.wfile.flush()
+            time.sleep(0.35)
+            self.wfile.write(b'[{"delta":{"content":"partial "}}]}\r\n\r\n')
 
         if mode == "slow_stream":
             event({"choices": [{"index": 0, "delta": {"content": "started"}}]})
@@ -409,6 +417,15 @@ class EngineIntegration(unittest.TestCase):
                 msgs[-1]["role"], "user" if alias == "anthropic" else "tool"
             )
             self.assertIn("verified", json.dumps(msgs[-1]))
+
+    def test_partial_stream_line_survives_idle_polls(self):
+        self.srv.mode = "paused_stream"
+        req = self.prepare(route="ollama", stream=True)
+        deltas = []
+        receipt = self.approve(req, deltas.append)
+        self.assertEqual(receipt["state"], "completed", receipt)
+        self.assertEqual(receipt["result"]["text"], "partial ready")
+        self.assertEqual("".join(deltas), "partial ready")
 
     def test_cancellation_in_flight_and_pending(self):
         req = self.prepare(route="ollama", fallback=["openai"])
