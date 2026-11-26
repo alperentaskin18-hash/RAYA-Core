@@ -18,6 +18,10 @@ python -m venv .venv
 
 Activate the environment before using the shorter `raya` command. The basic CLI uses the standard library. For optional image features install `python -m pip install ".[images]"`. Tk must be provided by your Python distribution for the HUD.
 
+## AI providers
+
+Use the CLI or the HUD’s **Provider settings** to choose models, set token limits and keep inference offline or enable a cloud provider. See the [provider guide](PROVIDERS.md).
+
 ## Use a local model
 
 Start a compatible llama.cpp server using a locally available, appropriately licensed GGUF. The example listens on loopback. Choose a free port and keep that server under your account.
@@ -63,7 +67,7 @@ For a manifest you have permission to use, pass its JSON to `python -m raya disc
 | inventory, monitor | Read OS/runtime details, available disk space and current profile database size. |
 | browse, copy, tone | Propose opening an HTTPS url, writing text to the clipboard, or playing a bounded Windows tone. The Linux clipboard needs wl-copy or xclip. |
 | capture, inspect-image | With Pillow installed, approve capture to a new name such as desktop.png. Inspect an image already in exports with name and optional frame. Returns dimensions, sampled color and frame timing. Supports PNG, JPEG, GIF and WebP. |
-| generate | Enable with set field=provider, value=local-llama and start your own llama.cpp server on the configured loopback port (default 8080). A prompt creates one proposal for at most 256 output tokens. The adapter never follows redirects. |
+| generate | The unified engine supports named routes and returns an approval proposal. In legacy local mode, enable with set field=provider, value=local-llama and start your own llama.cpp server on the configured loopback port (default 8080). A prompt creates one proposal for at most 256 output tokens. The adapter never follows redirects. |
 | devices, speak, listen | On Windows, enumerate local SAPI voices/devices. Propose synthesis with text and optional voice or recognition with device. Missing hardware and timeout surface as failed receipts. |
 | conversation | Propose a bounded Windows offline session. Optional seconds (5–90), voice and wake word. The default microphone recognizes goal count, skill count, help and stop. Speech detection interrupts synthesis. Each session has its own process. A new session after device loss requires fresh consent. |
 

@@ -8,12 +8,12 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = """
-LICENSE NOTICE .gitattributes .github/workflows/ci.yml .gitignore CONTRIBUTING.md PROVENANCE.md README.md
+LICENSE NOTICE .gitattributes .github/workflows/ci.yml .gitignore CONTRIBUTING.md PROVIDERS.md PROVENANCE.md README.md
 RELEASE-NOTES.md SECURITY.md pyproject.toml raya/__init__.py
-raya/__main__.py raya/core.py raya/dashboard.py raya/desktop.py raya/exports.py raya/goals.py
+raya/__main__.py raya/ai_settings.py raya/ai_protocol.py raya/engine.py raya/core.py raya/dashboard.py raya/desktop.py raya/exports.py raya/goals.py
 raya/hud.py raya/index.py raya/learning.py raya/local.py raya/provider.py raya/runtime.py
 raya/speech.ps1 raya/speech.py raya/storage.py raya/vault.py raya/visual.py raya/worker.py
-sbom.cdx.json tests/local_inference.py tests/test_boundaries.py tests/test_hud.py
+sbom.cdx.json tests/local_inference.py tests/test_boundaries.py tests/test_engine.py tests/test_hud.py
 tests/test_interface.py tests/test_mvp.py tests/test_outputs.py tests/test_services.py
 tools/package.py tools/verify_package.py
 """.split()

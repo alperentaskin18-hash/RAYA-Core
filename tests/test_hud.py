@@ -61,3 +61,46 @@ class Hud(unittest.TestCase):
             ):
                 open_hud(profile)
             profile.db.close()
+
+    def test_provider_editor_persists_model_and_limits(self):
+        from raya import engine
+        from raya.ai_settings import open_settings
+
+        with tempfile.TemporaryDirectory() as temp:
+            profile = Profile(temp)
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                open_settings(root, profile)
+                box = root.winfo_children()[0].winfo_children()[0]
+
+                def edit(row, value):
+                    widget = box.grid_slaves(row=row, column=1)[0]
+                    widget.delete(0, "end")
+                    widget.insert(0, value)
+
+                edit(0, "workstation")
+                edit(2, "local-test-model")
+                edit(7, "workstation")
+                edit(8, "42")
+                buttons = box.grid_slaves(row=12)[0]
+                next(
+                    w
+                    for w in buttons.winfo_children()
+                    if w.cget("text") == "Save settings"
+                ).invoke()
+                self.assertEqual(len(root.winfo_children()), 0)
+            finally:
+                root.destroy()
+                profile.db.close()
+            fresh = Profile(temp)
+            try:
+                prefs = engine.config(fresh)
+                self.assertTrue(prefs["offline"])
+                self.assertEqual(prefs["preferred"], "workstation")
+                self.assertEqual(prefs["max_output_tokens"], 42)
+                self.assertEqual(
+                    prefs["routes"]["workstation"]["model"], "local-test-model"
+                )
+            finally:
+                fresh.db.close()

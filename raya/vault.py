@@ -34,6 +34,23 @@ def files(profile):
     return directory
 
 
+def read_secret(profile, name):
+    identifier(name, "secret name")
+    path = child(files(profile), name + ".secret")
+    if not path.exists():
+        return None
+    raw = path.read_bytes()
+    return (windows_protect(raw, True) if os.name == "nt" else raw).decode()
+
+
+def remove_provider_key(profile, provider):
+    from .ai_protocol import HOSTS, LOCAL
+
+    require(provider in HOSTS and provider not in LOCAL, "unknown cloud provider")
+    child(files(profile), "ai-" + provider + ".secret").unlink(missing_ok=True)
+    return {"removed": "ai-" + provider}
+
+
 def values(profile):
     directory = files(profile)
     if directory.exists():

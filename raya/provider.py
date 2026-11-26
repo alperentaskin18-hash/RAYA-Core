@@ -11,6 +11,10 @@ def destination(settings):
 
 
 def request(profile, args):
+    if profile.settings().get("provider") == "engine":
+        from .engine import prepare
+
+        return prepare(profile, args)
     prompt = text_field(args["prompt"], "prompt", 8192)
     require(
         profile.settings().get("provider") == "local-llama", "local provider disabled"
@@ -48,6 +52,16 @@ def generate(payload, port=8080):
 
 
 def available(profile):
+    if profile.settings().get("provider") == "engine":
+        from .engine import status
+
+        return (
+            "configured"
+            if any(
+                r["state"] == "configured" for r in status(profile)["routes"].values()
+            )
+            else "unavailable"
+        )
     if profile.settings().get("provider") != "local-llama":
         return "unconfigured"
     conn = http.client.HTTPConnection(

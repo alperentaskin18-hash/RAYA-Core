@@ -98,7 +98,7 @@ class Profile:
         valid = {
             "language": ("en", "tr"),
             "theme": ("system", "light", "dark"),
-            "provider": ("off", "local-llama"),
+            "provider": ("off", "local-llama", "engine"),
         }
         if field == "provider_port":
             require(
@@ -215,7 +215,8 @@ def plan_run(profile, key, argument):
     )
 
 
-def decide(profile, token, approved_digest, allow):
+def decide(profile, token, approved_digest, allow, emit=None):
+    from . import engine
     from .runtime import execute, install
 
     require(profile.db.in_transaction, "approval requires a profile transaction")
@@ -241,7 +242,11 @@ def decide(profile, token, approved_digest, allow):
         descriptor["runtime_lock"] = request["runtime_lock"]
         if request["runtime_lock"] != lock(request["content"]):
             allow = False
-    baseline = profile.settings() if request["operation"] == "generate" else current
+    baseline = (
+        profile.settings()
+        if request["operation"] in {"generate", "ai-generate"}
+        else current
+    )
     baseline_digest = digest(baseline)
     if request["operation"] in {"export", "capture"}:
         import os
@@ -263,6 +268,7 @@ def decide(profile, token, approved_digest, allow):
         # consume their approval first. An interrupted claim requires review.
         if request["operation"] in {
             "generate",
+            "ai-generate",
             "speech",
             "export",
             "browse",
@@ -314,6 +320,10 @@ def decide(profile, token, approved_digest, allow):
                 from .speech import speech
 
                 request["result"] = speech(request["content"])
+            elif request["operation"] == "ai-generate":
+                request["result"] = engine.execute(
+                    profile, token, request["content"], baseline, emit
+                )
             elif request["operation"] == "generate":
                 from .provider import generate
 
@@ -328,7 +338,14 @@ def decide(profile, token, approved_digest, allow):
                 profile.db.execute("BEGIN IMMEDIATE")
             if any(contains(request.get("result"), value) for value in values(profile)):
                 request["result"] = "[redacted]"
+            if request["operation"] == "ai-generate" and profile.get(
+                "ai_cancel", token
+            ):
+                raise engine.Cancelled("generation cancelled")
             request["state"] = "completed"
+        except engine.Cancelled:
+            request.pop("result", None)
+            request["state"] = "cancelled"
         except (ImportError, OSError, RuntimeError, ValueError) as exc:
             request.update(state="failed", error=str(exc))
     profile.put("requests", token, request)

@@ -8,7 +8,18 @@ import sys
 from pathlib import Path
 from urllib.error import URLError
 
-from . import goals, index, learning, provider, speech, exports, desktop, vault, visual
+from . import (
+    engine,
+    goals,
+    index,
+    learning,
+    provider,
+    speech,
+    exports,
+    desktop,
+    vault,
+    visual,
+)
 from .core import (
     Profile,
     decide,
@@ -20,6 +31,10 @@ from .core import (
     propose,
     require,
 )
+
+
+def emit_delta(text):
+    print(json.dumps({"delta": text}, ensure_ascii=True), file=sys.stderr, flush=True)
 
 
 def dispatch(p, cmd, a):
@@ -43,7 +58,7 @@ def dispatch(p, cmd, a):
                 "clipboard": "Windows Tk, wl-copy or xclip",
                 "browse": "configured system browser",
                 "tone": "Windows audio device",
-                "generate": "enabled loopback llama.cpp server and installed model",
+                "generate": "configured provider, available model and request approval",
                 "speech": "Windows recognizer / synthesizer and matching audio hardware",
                 "monitor": "local profile filesystem",
                 "plan": "manual development steps",
@@ -68,6 +83,20 @@ def dispatch(p, cmd, a):
         return visual.inspect(p, a["name"], a.get("frame", 0))
     if cmd == "export":
         return exports.plan(p, a)
+    if cmd == "ai-config":
+        return engine.configure(p, a) if a else engine.config(p)
+    if cmd == "ai-health":
+        return engine.probe(p, a["route"])
+    if cmd == "ai-key-remove":
+        return vault.remove_provider_key(p, a["provider"])
+    if cmd == "ai-usage":
+        return engine.usage(p)
+    if cmd == "ai-cancel":
+        return engine.cancel(p, a["id"])
+    if cmd == "providers" or (
+        cmd == "provider-status" and p.settings().get("provider") == "engine"
+    ):
+        return engine.status(p)
     if cmd == "provider-status":
         return {
             "state": provider.available(p),
@@ -115,7 +144,7 @@ def dispatch(p, cmd, a):
     if cmd == "run":
         return plan_run(p, a["skill"], a["input"])
     if cmd in {"approve", "deny"}:
-        return decide(p, a["id"], a["digest"], cmd == "approve")
+        return decide(p, a["id"], a["digest"], cmd == "approve", emit_delta)
     if cmd == "remove":
         key = a["skill"]
         current = p.get("skills", key)
@@ -178,7 +207,7 @@ def main():
             )
             allow = sys.stdin.readline(16).strip() == "yes"
             with p.transaction():
-                receipt = decide(p, request["id"], request["digest"], allow)
+                receipt = decide(p, request["id"], request["digest"], allow, emit_delta)
             print(json.dumps(receipt, ensure_ascii=True))
             if receipt["state"] != "completed":
                 sys.exit(1)
