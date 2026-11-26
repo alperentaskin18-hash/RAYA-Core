@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raya-independent-core"
+version = "0.1.0"
+description = "Local assistant with reviewable operations and an optional loopback AI provider"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+images = ["Pillow==13.0.0"]
+
+[project.scripts]
+raya = "raya.__main__:main"
+
+[tool.setuptools]
+packages = ["raya"]
+
+[tool.setuptools.package-data]
+raya = ["speech.ps1"]

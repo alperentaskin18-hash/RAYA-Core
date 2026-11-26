@@ -1,0 +1,217 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "bom-ref": "raya",
+      "name": "raya-independent-core",
+      "version": "0.1.0",
+      "description": "Source candidate for owner review. Licensing decision pending."
+    },
+    "properties": [
+      {
+        "name": "inventory.scope",
+        "value": "Direct runtime, optional integrations and selected build/test components for the source package. Platform services and external wheels are supplied separately."
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "cpython",
+      "name": "CPython",
+      "version": "3.12.14",
+      "scope": "required",
+      "description": "Validation interpreter, including standard library. Minimum supported Python is 3.11.",
+      "licenses": [
+        {
+          "license": {
+            "id": "Python-2.0"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "sqlite",
+      "name": "SQLite",
+      "version": "3.53.1",
+      "scope": "required",
+      "description": "SQLite library supplied with the interpreter.",
+      "licenses": [
+        {
+          "license": {
+            "name": "Public domain dedication"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "tcl",
+      "name": "Tcl",
+      "version": "9.0.4",
+      "scope": "optional",
+      "description": "Platform runtime for the HUD.",
+      "licenses": [
+        {
+          "license": {
+            "id": "TCL"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "tk",
+      "name": "Tk",
+      "version": "9.0.4",
+      "scope": "optional",
+      "description": "Platform GUI toolkit.",
+      "licenses": [
+        {
+          "license": {
+            "id": "TCL"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pillow",
+      "name": "Pillow",
+      "version": "13.0.0",
+      "scope": "optional",
+      "description": "Optional separately installed imaging wheel. Its native libraries are outside this source distribution.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT-CMU"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/pillow@13.0.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "llama",
+      "name": "llama.cpp",
+      "version": "4227c9b",
+      "scope": "optional",
+      "description": "CPU server build identifier as reported at validation. Operator supplies server and model separately.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "setuptools",
+      "name": "setuptools",
+      "version": "84.2.1",
+      "scope": "excluded",
+      "description": "Build backend. Runtime installation has no mandatory third-party Python package.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/setuptools@84.2.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "gguf",
+      "name": "gguf-py",
+      "version": "0.17.1",
+      "scope": "excluded",
+      "description": "Writer for the optional original inference fixture.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/gguf@0.17.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "numpy",
+      "name": "NumPy",
+      "version": "2.3.5",
+      "scope": "excluded",
+      "description": "Arrays for the manual inference fixture.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/numpy@2.3.5"
+    },
+    {
+      "type": "library",
+      "bom-ref": "server-source",
+      "name": "llama-cpp-python source distribution",
+      "version": "0.3.16",
+      "scope": "excluded",
+      "description": "Source of the separately built validation server and GGUF writer.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/llama-cpp-python@0.3.16",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6"
+        }
+      ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "cmake",
+      "name": "CMake",
+      "version": "3.31.10",
+      "scope": "excluded",
+      "description": "Test server build only.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/cmake@3.31.10"
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "raya",
+      "dependsOn": [
+        "cpython",
+        "sqlite",
+        "tk",
+        "pillow",
+        "llama"
+      ]
+    },
+    {
+      "ref": "tk",
+      "dependsOn": [
+        "tcl"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# Reporting a vulnerability
+
+After public release, open the project's GitHub Security tab, choose **Report a vulnerability**, and send a private report to the maintainers. Include the affected version, platform, impact and a redacted description. Keep detailed reports, credentials and private project data out of public issues and discussions.
+
+While the project is private, contact the maintainer through your existing private collaboration channel. Public reporting opens when an administrator enables GitHub Private Vulnerability Reporting and verifies the report form.
+
+## MVP trust boundary
+
+Run reviewed application code on a trusted single-user machine. Use a profile under your own home directory. On Unix an existing profile must have mode 0700. On Windows use a profile under your user directory with a private NTFS ACL. The program checks for redirected profile data, special files, link counts and unsafe Unix ownership/write permissions. The operator must control the profile's parent path and the installation. Same-account malware, a compromised interpreter, administrators and offline modification of profile state are outside the boundary. Use disk encryption for sensitive data. Unix vault files rely on account permissions. Windows uses DPAPI.
+
+- Every approval covers one request ID, operation, destination, content, permission list and baseline. Installations also bind the runtime lock. Review the actual request before typing yes. Old pending receipts from before identity binding must be reissued. Completed receipts remain readable. SQLite serializes claimants. For external effects the claim is durable before dispatch. After a crash, inspect an in_progress receipt manually before creating a new request.
+- Workers accept five built-in text operations. They execute an in-memory copy of verified application code with isolated Python startup, restricted environment, bounded input, memory and time. Manifests cannot supply executable code. The audit hook provides additional restrictions for the trusted worker. Arbitrary Python plugins require a different isolation design.
+- The AI adapter connects directly to a fixed loopback IP and a configured port. A health check establishes service responsiveness. The operator controls the listener, chooses the model and reviews its terms. Any local process that controls that port can impersonate the model server. Generated text is returned as data. Restrict access to profile receipts, which can contain sensitive prompts and results.
+- Dashboard startup prints an ephemeral bearer to its controlling output. Use a private terminal or pipe. Serve only on loopback or an operator-controlled encrypted tunnel. Each request needs exactly one authorization header. Browser-origin requests are rejected, connections are bounded, and progress uses a read-only database connection. Restart rotates the token.
+- Index only explicitly chosen, locally controlled project trees. Hidden directories, known private directories, linked paths and multiply-linked source files are excluded. Use OS-level isolation for adversarial repositories or shared writable directories. Review imports, installation proposals and source rights separately.
+
+Hosted Linux and Windows CI succeeded for the tested application revision. Real-device behavior and Windows ACLs in an operator installation require local validation. See RELEASE-NOTES.md.
