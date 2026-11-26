@@ -8,7 +8,14 @@
       "bom-ref": "raya",
       "name": "raya-independent-core",
       "version": "0.1.0",
-      "description": "Source candidate for owner review. Licensing decision pending."
+      "description": "R.A.Y.A Core v0.1.0 source distribution.",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
     },
     "properties": [
       {

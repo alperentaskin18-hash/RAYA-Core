@@ -1,0 +1,8 @@
+R.A.Y.A Core 0.1.0
+
+R.A.Y.A Core includes an independently developed local assistant, original
+test fixtures, and a programmatically drawn desktop avatar. Dependency and
+validation-tool information is provided in sbom.cdx.json. Model weights and
+inference server binaries are separately supplied by the operator.
+
+SPDX-License-Identifier: Apache-2.0

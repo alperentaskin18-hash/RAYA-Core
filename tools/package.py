@@ -8,7 +8,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = """
-.gitattributes .github/workflows/ci.yml .gitignore CONTRIBUTING.md PROVENANCE.md README.md
+LICENSE NOTICE .gitattributes .github/workflows/ci.yml .gitignore CONTRIBUTING.md PROVENANCE.md README.md
 RELEASE-NOTES.md SECURITY.md pyproject.toml raya/__init__.py
 raya/__main__.py raya/core.py raya/dashboard.py raya/desktop.py raya/exports.py raya/goals.py
 raya/hud.py raya/index.py raya/learning.py raya/local.py raya/provider.py raya/runtime.py

@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Local assistant with reviewable operations and an optional loopback AI provider"
 requires-python = ">=3.11"
 dependencies = []
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 
 [project.optional-dependencies]
 images = ["Pillow==13.0.0"]
