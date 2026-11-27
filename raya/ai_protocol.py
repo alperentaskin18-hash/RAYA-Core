@@ -14,6 +14,16 @@ HOSTS = {
     "deepseek": ("api.deepseek.com", "/chat/completions"),
     "groq": ("api.groq.com", "/openai/v1/chat/completions"),
     "openrouter": ("openrouter.ai", "/api/v1/chat/completions"),
+    "chatgpt": ("api.openai.com", "/v1/responses"),
+    "omniroute": ("127.0.0.1", "/v1/chat/completions"),
+    "sambanova": ("api.sambanova.ai", "/v1/chat/completions"),
+    "nim": ("integrate.api.nvidia.com", "/v1/chat/completions"),
+    "cloudflare": (
+        "api.cloudflare.com",
+        "/client/v4/accounts/{account}/ai/v1/chat/completions",
+    ),
+    "mistral": ("api.mistral.ai", "/v1/chat/completions"),
+    "cohere": ("api.cohere.ai", "/compatibility/v1/chat/completions"),
     "ollama": ("127.0.0.1", "/v1/chat/completions"),
     "llama.cpp": ("127.0.0.1", "/v1/chat/completions"),
 }
@@ -123,6 +133,17 @@ def payload(route, content):
     )
     body[limit_key] = content["max_output_tokens"]
     previous = content["tool_results"]
+    if provider == "chatgpt":
+        require(
+            not (content["stream"] or tools or spec or previous),
+            "registered Responses adapter supports plain text only",
+        )
+        return {
+            "model": route["model"],
+            "input": prompt,
+            "max_output_tokens": content["max_output_tokens"],
+            "store": False,
+        }
     if provider == "anthropic":
         if tools:
             body["tools"] = [
@@ -205,6 +226,8 @@ def payload(route, content):
             }
     if provider == "openrouter":
         body["provider"] = {"allow_fallbacks": False, "require_parameters": True}
+    if provider == "openrouter" and content.get("zero_cost"):
+        body["provider"]["max_price"] = {"prompt": 0, "completion": 0, "request": 0}
     if content["stream"]:
         body["stream_options"] = {"include_usage": True}
     return body
@@ -217,6 +240,7 @@ class Reply:
         self.text = ""
         self.calls = {}
         self.usage = {}
+        self.reported_cost_usd = None
         self.finish = None
         self.emit = emit
 
@@ -228,6 +252,19 @@ class Reply:
             self.emit(text)
 
     def usage_from(self, raw):
+        details = (
+            raw.get("completion_tokens_details")
+            or raw.get("output_tokens_details")
+            or {}
+        )
+        reasoning = (
+            details.get("reasoning_tokens") if isinstance(details, dict) else None
+        )
+        if type(reasoning) is int and reasoning >= 0:
+            self.usage["reasoning_tokens"] = reasoning
+        cost = raw.get("cost")
+        if type(cost) in (int, float) and math.isfinite(cost) and cost >= 0:
+            self.reported_cost_usd = cost
         for source, target in (
             ("prompt_tokens", "input_tokens"),
             ("completion_tokens", "output_tokens"),
@@ -247,6 +284,19 @@ class Reply:
         for key, fragment in (("id", ident), ("name", name), ("arguments", arguments)):
             if fragment:
                 call[key] += fragment
+
+    def responses(self, event, stream):
+        require(
+            not stream and event.get("status") == "completed",
+            "incomplete Responses result",
+        )
+        for item in event.get("output", []):
+            if item.get("type") == "message":
+                for part in item.get("content", []):
+                    if part.get("type") == "output_text":
+                        self.add_text(part["text"])
+        self.usage_from(event.get("usage", {}))
+        self.finish = "stop"
 
     def chat(self, event, stream):
         self.usage_from(

@@ -229,6 +229,9 @@ def local_pcm(cfg, text, stop):
 
 def cloud_pcm(profile, data, stop):
     """Only called from an approved cloud-speech operation or loopback fixtures."""
+    from .cloud import strict
+
+    require(not strict(profile), "cloud speech has no verified zero-price contract")
     provider = data["provider"]
     require(not engine.config(profile)["offline"], "offline mode blocks cloud speech")
     key = vault.read_secret(

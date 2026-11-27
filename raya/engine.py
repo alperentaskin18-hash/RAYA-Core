@@ -9,7 +9,7 @@ import threading
 import time
 
 from . import ai_protocol as wire
-from . import vault
+from . import cloud, vault
 from .core import Profile, digest, encode, identifier, propose, require, text_field
 
 DEFAULT = {
@@ -49,11 +49,43 @@ def configure(profile, patch):
             alias != "auto"
             and isinstance(route, dict)
             and route.keys()
-            <= {"provider", "model", "features", "context_tokens", "port"},
+            <= {
+                "provider",
+                "model",
+                "features",
+                "context_tokens",
+                "port",
+                "account",
+                "project",
+                "pool",
+                "credential",
+                "upstream",
+                "responses_url",
+            },
             "invalid route",
         )
         provider = route.get("provider")
         require(provider in wire.HOSTS, "unknown provider")
+        for field in ("account", "project", "pool", "credential"):
+            if field in route:
+                identifier(route[field], field)
+        if "upstream" in route:
+            require(
+                provider == "omniroute"
+                and route["upstream"] in wire.HOSTS
+                and route["upstream"] != "omniroute",
+                "invalid upstream mapping",
+            )
+        if provider == "chatgpt":
+            registration = profile.get("oauth", "registration", {})
+            require(
+                registration.get("responses_url")
+                and registration["responses_url"] == route.get("responses_url"),
+                "registered Responses destination required",
+            )
+        cloud.address(route)
+        if provider in cloud.NEW:
+            cloud.enable(profile)
         model = text_field(route.get("model"), "model", 256)
         require(model.isprintable(), "invalid model")
         features = route.get("features", [])
@@ -62,8 +94,12 @@ def configure(profile, patch):
         )
         integer(route.get("context_tokens", 32768), 1, 2000000, "model context limit")
         if "port" in route:
-            require(provider in wire.LOCAL, "cloud destination is fixed")
+            require(
+                provider in wire.LOCAL or provider == "omniroute",
+                "cloud destination is fixed",
+            )
             integer(route["port"], 1, 65535, "local port")
+    cloud.check_pools(routes)
     require(
         cfg["preferred"] == "auto" or cfg["preferred"] in routes,
         "unknown preferred route",
@@ -76,20 +112,28 @@ def configure(profile, patch):
 
 def port(route):
     return route.get(
-        "port", {"ollama": 11434, "llama.cpp": 8080}.get(route["provider"], 443)
+        "port",
+        {"ollama": 11434, "llama.cpp": 8080, "omniroute": 20128}.get(
+            route["provider"], 443
+        ),
     )
 
 
 def endpoint(route):
-    host, path = wire.HOSTS[route["provider"]]
-    if route["provider"] in wire.LOCAL:
+    host, path = cloud.address(route)
+    if route["provider"] in wire.LOCAL or route["provider"] == "omniroute":
         return f"http://{host}:{port(route)}{path}"
     return f"https://{host}{path}"
 
 
-def credential(profile, provider):
+def credential(profile, provider, route=None):
+    if provider == "chatgpt":
+        from .chatgpt_auth import slot
+
+        alias = profile.get("oauth", "active")
+        return vault.read_secret(profile, slot(alias, "access")) if alias else None
     return (
-        vault.read_secret(profile, "ai-" + provider)
+        vault.read_secret(profile, cloud.key_name(route or {"provider": provider}))
         if provider not in wire.LOCAL
         else None
     )
@@ -105,7 +149,7 @@ def status(profile):
         if provider not in wire.LOCAL:
             if cfg["offline"]:
                 state = "offline"
-            elif not credential(profile, provider):
+            elif not credential(profile, provider, route):
                 state = "missing_key"
         routes[name] = {
             "model": route["model"],
@@ -117,10 +161,26 @@ def status(profile):
     return {"providers": list(wire.HOSTS), "offline": cfg["offline"], "routes": routes}
 
 
-def headers_for(profile, provider):
+def headers_for(profile, provider, route=None):
     headers = {"Content-Type": "application/json"}
+    if provider == "chatgpt":
+        from .chatgpt_auth import account
+
+        alias = profile.get("oauth", "active")
+        record = profile.get("oauth_accounts", alias)
+        cfg = profile.get("oauth", "registration")
+        require(
+            record
+            and cfg
+            and cfg["distribution"] == "open-source"
+            and cfg["responses_url"] == route.get("responses_url")
+            and record["registration"] == digest(cfg),
+            "eligible registered account required",
+        )
+        if record["expires"] < time.time() + 60:
+            account(profile, "refresh", alias)
     if provider not in wire.LOCAL:
-        key = credential(profile, provider)
+        key = credential(profile, provider, route)
         require(
             key and key.isascii() and key.isprintable(),
             "provider credential unavailable",
@@ -141,7 +201,14 @@ def probe(profile, alias):
         provider in wire.LOCAL or not cfg["offline"],
         "offline mode blocks cloud health probes",
     )
-    headers = headers_for(profile, provider)
+    if provider in cloud.NEW:
+        catalog = cloud.discover(profile, alias)
+        return {
+            "state": catalog["state"],
+            "model_listed": any(m["id"] == route["model"] for m in catalog["models"]),
+            "time": catalog["time"],
+        }
+    headers = headers_for(profile, provider, route)
     host, path = wire.HOSTS[provider]
     # Use the same fixed origin and credential as inference. A model-list probe
     # does not generate tokens; successful access does not establish quota.
@@ -198,6 +265,7 @@ def prepare(profile, args):
             "tool_results",
             "max_output_tokens",
             "budget",
+            "task_kind",
         },
         "unknown generation option",
     )
@@ -246,6 +314,13 @@ def prepare(profile, args):
         budget=budget,
         retries=cfg["retries"],
     )
+    if cloud.strict(profile):
+        content["zero_cost"] = True
+    task_kind = args.get("task_kind", "general")
+    require(
+        task_kind in {"general", "feature", "repair", "optimize", "reasoning", "tools"},
+        "unknown task kind",
+    )
     states = status(profile)["routes"]
     named = args.get("route", cfg["preferred"])
     fallbacks = args.get("fallback", [])
@@ -266,10 +341,41 @@ def prepare(profile, args):
             or not required <= set(route.get("features", []))
         ):
             return None
+        if content.get("zero_cost") and not cloud.eligible(
+            profile, name, route, content
+        ):
+            return None
         reservation = limit + len(encode(wire.payload(route, content)).encode()) + 32
+        if content.get("zero_cost") and not cloud.capacity(profile, route, reservation):
+            return None
+        if content.get("zero_cost"):
+            model = next(
+                (
+                    m
+                    for m in profile.get("cloud_catalog", name, {}).get("models", [])
+                    if m["id"] == route["model"]
+                ),
+                {},
+            )
+            if reservation > model.get(
+                "context_length", model.get("max_model_len", 2**31)
+            ):
+                return None
         if reservation > min(route.get("context_tokens", 32768), budget):
             return None
         return dict(
+            **{
+                k: route[k]
+                for k in (
+                    "pool",
+                    "account",
+                    "project",
+                    "credential",
+                    "upstream",
+                    "responses_url",
+                )
+                if k in route
+            },
             alias=name,
             provider=route["provider"],
             model=route["model"],
@@ -286,6 +392,9 @@ def prepare(profile, args):
             return (
                 last.get("state") == "failed"
                 and time.time() - last.get("time", 0) < 60,
+                cloud.rank(profile, route, task_kind)
+                if content.get("zero_cost")
+                else (),
                 route["provider"] not in wire.LOCAL,
                 route.get("context_tokens", 32768),
                 name,
@@ -379,10 +488,10 @@ class _ResponseReader(io.RawIOBase):
 
 @contextlib.contextmanager
 def connection(profile, token, route):
-    host, _ = wire.HOSTS[route["provider"]]
+    host, _ = cloud.address(route)
     factory = (
         http.client.HTTPConnection
-        if route["provider"] in wire.LOCAL
+        if route["provider"] in wire.LOCAL or route["provider"] == "omniroute"
         else http.client.HTTPSConnection
     )
     conn = factory(host, route["port"], timeout=15)
@@ -465,9 +574,18 @@ def frames(response):
 def exchange(profile, token, route, content, reply):
     provider = route["provider"]
     anthropic = provider == "anthropic"
-    headers = headers_for(profile, provider)
+    headers = headers_for(profile, provider, route)
+    if content.get("zero_cost"):
+        import hashlib
+
+        key = headers.get("Authorization", "").removeprefix("Bearer ")
+        require(
+            profile.get("cloud_catalog", route["alias"], {}).get("key_binding")
+            == hashlib.sha256(key.encode()).hexdigest(),
+            "credential changed after quota reservation",
+        )
     headers["Accept"] = "text/event-stream" if content["stream"] else "application/json"
-    _, path = wire.HOSTS[provider]
+    _, path = cloud.address(route)
     with connection(profile, token, route) as (conn, interrupted):
         conn.connect()
         require(
@@ -478,9 +596,16 @@ def exchange(profile, token, route, content, reply):
             "POST", path, encode(wire.payload(route, content)).encode(), headers
         )
         with conn.getresponse() as response:
+            cloud.observe(profile, route, response)
             if response.status != 200:
                 raise Rejected(response.status, response.getheader("Retry-After"))
-            accept = reply.anthropic if anthropic else reply.chat
+            accept = (
+                reply.responses
+                if provider == "chatgpt"
+                else reply.anthropic
+                if anthropic
+                else reply.chat
+            )
             if content["stream"]:
                 for frame in frames(response):
                     require(not interrupted.is_set(), "provider interrupted")
@@ -547,6 +672,22 @@ def execute(profile, token, content, approved_settings, emit=None):
                 remaining >= route["reservation"],
                 "approved token reservation exhausted",
             )
+            metered = cloud.strict(profile) or provider in cloud.NEW
+            started = time.monotonic()
+            if metered:
+                require(content.get("zero_cost"), "fresh zero-cost approval required")
+                try:
+                    cloud.reserve(
+                        profile,
+                        route["alias"],
+                        approved_settings["ai"]["routes"][route["alias"]],
+                        content,
+                        route["reservation"],
+                        f"{token}/{attempts + 1}",
+                    )
+                except ValueError as exc:
+                    last_error = str(exc)
+                    break
             remaining -= route["reservation"]
             attempts += 1
             attempt_id = f"{token}/{attempts}"
@@ -560,6 +701,20 @@ def execute(profile, token, content, approved_settings, emit=None):
                 state="in_progress",
                 usage={},
             )
+            if not metered:
+                profile.put(
+                    "cloud_reservations",
+                    attempt_id,
+                    dict(
+                        cloud.identity(route),
+                        binding=cloud.binding(route),
+                        time=time.time(),
+                        tokens=route["reservation"],
+                        reserved=route["reservation"],
+                        state="reserved",
+                        policy="legacy",
+                    ),
+                )
             profile.put("ai_attempts", attempt_id, record)
             send = stream_filter(
                 emit if content["stream"] else None, tuple(vault.values(profile))
@@ -619,6 +774,10 @@ def execute(profile, token, content, approved_settings, emit=None):
                 if record["state"] == "in_progress":
                     record["state"] = "failed"
                 record["usage"] = reply.usage
+                record["latency_ms"] = round(1000 * (time.monotonic() - started))
+                if provider == "openrouter":
+                    record["reported_cost_usd"] = reply.reported_cost_usd
+                cloud.settle(profile, attempt_id, record)
                 profile.put("ai_attempts", attempt_id, record)
                 profile.put(
                     "ai_health",

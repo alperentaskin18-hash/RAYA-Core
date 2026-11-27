@@ -95,7 +95,14 @@ class Profile:
         return self.get("profile", "preferences", {"language": "en", "theme": "system"})
 
     def configure(self, field, value):
+        if field == "billing_policy":
+            require(value in ("strict", "legacy"), "invalid billing policy")
+            require(
+                value != "legacy" or not self.settings().get("zero_cost"),
+                "DAY_07 profile is locked to zero-cost routing",
+            )
         valid = {
+            "billing_policy": ("strict", "legacy"),
             "language": ("en", "tr"),
             "theme": ("system", "light", "dark"),
             "provider": ("off", "local-llama", "engine"),
@@ -247,7 +254,11 @@ def decide(profile, token, approved_digest, allow, emit=None, *, stop=None):
         if request["operation"] in {"generate", "ai-generate"}
         else current
     )
-    baseline_digest = digest(baseline)
+    baseline_digest = (
+        digest(profile.get("dev_tasks", key))
+        if request["operation"] == "dev-commit"
+        else digest(baseline)
+    )
     if request["operation"] == "voice-cloud":
         from .voice import cloud_baseline
 
@@ -285,7 +296,11 @@ def decide(profile, token, approved_digest, allow, emit=None, *, stop=None):
             profile.put("requests", token, request)
             profile.db.commit()
         try:
-            if request["operation"] == "install":
+            if request["operation"] == "dev-commit":
+                from .development import commit
+
+                request["result"] = commit(profile, profile.get("dev_tasks", key))
+            elif request["operation"] == "install":
                 runtime = install(profile, request["content"])
                 record = {
                     "manifest": request["content"],

@@ -37,6 +37,7 @@ class VoiceTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.p = Profile(directory.name)
+        self.p.configure("billing_policy", "legacy")
         self.addCleanup(self.p.db.close)
         self.loud = array("h", [1500, -1500] * (voice.FRAME // 2)).tobytes()
         self.quiet = bytes(voice.FRAME * 2)

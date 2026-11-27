@@ -38,6 +38,10 @@ def emit_delta(text):
 
 
 def dispatch(p, cmd, a):
+    if cmd.startswith(("cloud-", "dev-")):
+        from .control import action
+
+        return action(p, cmd, a)
     if cmd == "capabilities":
         return {
             "local": [

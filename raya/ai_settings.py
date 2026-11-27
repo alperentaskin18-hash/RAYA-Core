@@ -60,16 +60,35 @@ def open_settings(root, profile):
         row=11, columnspan=2, sticky="w"
     )
 
+    extra = {}
+    for i, key in enumerate(
+        ("account", "project", "pool", "credential", "upstream", "responses_url"), 13
+    ):
+        extra[key] = tk.StringVar(window)
+        field(
+            i,
+            {
+                "credential": "Credential suffix",
+                "upstream": "OmniRoute upstream",
+                "responses_url": "Registered Responses URL",
+            }.get(key, key.title()),
+            extra[key],
+        )
+
     def update_port(*_):
-        port_field.configure(state="normal" if provider.get() in LOCAL else "disabled")
+        port_field.configure(
+            state="normal" if provider.get() in (*LOCAL, "omniroute") else "disabled"
+        )
         port.set(
             str(engine.port({"provider": provider.get()}))
-            if provider.get() in LOCAL
+            if provider.get() in (*LOCAL, "omniroute")
             else ""
         )
 
     def load(*_):
         route = routes.get(alias.get(), {"provider": "llama.cpp", "model": ""})
+        for key, var in extra.items():
+            var.set(route.get(key, ""))
         provider.set(route["provider"])
         model.set(route["model"])
         update_port()
@@ -86,7 +105,8 @@ def open_settings(root, profile):
             "context_tokens": int(context.get()),
             "features": [name for name, var in features.items() if var.get()],
         }
-        if r["provider"] in LOCAL:
+        r.update({key: var.get() for key, var in extra.items() if var.get()})
+        if r["provider"] in (*LOCAL, "omniroute"):
             r["port"] = int(port.get())
         return r
 
@@ -124,7 +144,17 @@ def open_settings(root, profile):
         if value:
             try:
                 with profile.transaction():
-                    vault.store(profile, "ai-" + name, value)
+                    vault.store(
+                        profile,
+                        "ai-"
+                        + name
+                        + (
+                            "-" + extra["credential"].get()
+                            if extra["credential"].get()
+                            else ""
+                        ),
+                        value,
+                    )
             except (ValueError, OSError) as exc:
                 messagebox.showerror("Credential", str(exc), parent=window)
 

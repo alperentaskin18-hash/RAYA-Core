@@ -24,7 +24,7 @@ Open **Voice** in the HUD for push-to-talk or local wake detection, live transcr
 
 ## AI providers
 
-Use the CLI or the HUD’s **Provider settings** to choose models, set token limits and keep inference offline or enable a cloud provider. See the [provider guide](PROVIDERS.md).
+Use the CLI or the HUD’s **Provider settings** to choose models, set token limits and keep inference offline or enable a cloud provider. See the [provider guide](PROVIDERS.md). For authenticated cloud discovery, zero-cost routing, account quotas and isolated development tasks, see the [cloud control guide](CLOUD.md).
 
 ## Use a local model
 
@@ -38,6 +38,7 @@ In another terminal, run the following from the same profile. JSON examples use 
 
 ```sh
 raya set '{"field":"provider_port","value":8177}'
+raya set '{"field":"billing_policy","value":"legacy"}'
 raya set '{"field":"provider","value":"local-llama"}'
 raya provider-status
 raya ask "Suggest one test for a settings file that fails to save."
