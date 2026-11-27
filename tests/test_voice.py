@@ -224,9 +224,11 @@ class VoiceTests(unittest.TestCase):
                 self.wfile.write(bytes(1920))
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), Service)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server.daemon_threads = False
+        thread = threading.Thread(target=server.serve_forever)
         thread.start()
         self.addCleanup(server.server_close)
+        self.addCleanup(thread.join)
         self.addCleanup(server.shutdown)
         hosts = []
 
@@ -313,10 +315,11 @@ class VoiceTests(unittest.TestCase):
                 time.sleep(0.01)
             self.fail("voice HUD transition timed out")
 
+        answers = iter((False, True, True, True))
         with (
-            patch.object(voice_audio, "capture", side_effect=capture),
-            patch.object(voice_audio, "playback", side_effect=playback),
-            patch("tkinter.messagebox.askyesno", side_effect=[False, True, True]),
+            patch.object(voice_audio, "capture", capture),
+            patch.object(voice_audio, "playback", playback),
+            patch("tkinter.messagebox.askyesno", lambda *a, **kw: next(answers)),
             patch.object(
                 engine, "exchange", return_value={"text": "answer", "usage": {}}
             ),
@@ -338,4 +341,22 @@ class VoiceTests(unittest.TestCase):
             until(playing.is_set)
             record[0]("partial", "hey raya")
             until(interrupted.is_set)
+            copies = []
+
+            def copy(command, data):
+                copies.append((threading.get_ident(), command, data))
+                return {"completed": True}
+
+            with (
+                patch("raya.voice_hud.sys.platform", "win32"),
+                patch("raya.desktop.shutil.which", return_value="fixture"),
+                patch("raya.desktop.perform", copy),
+            ):
+                record[0]("final", "hey raya copy hello")
+                until(lambda: entry.get() == "copy hello")
+                buttons["Review turn"].invoke()
+                until(lambda: bool(copies))
+                self.assertEqual(
+                    copies, [(threading.get_ident(), "copy", {"text": "hello"})]
+                )
             buttons["End session"].invoke()

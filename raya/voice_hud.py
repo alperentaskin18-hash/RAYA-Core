@@ -2,6 +2,7 @@
 
 import json
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -10,6 +11,25 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import engine, voice, voice_audio
 from .core import Profile, decide
+
+
+def _execute_request(directory, req, text, tag, events):
+    p = Profile(directory)
+    try:
+        with p.transaction():
+            if tag.is_set():
+                if p.get("requests", req["id"])["state"] == "pending":
+                    decide(p, req["id"], req["digest"], False)
+                return
+            result = decide(p, req["id"], req["digest"], True, stop=tag)
+        events.put((tag, "receipt", (text, result)))
+    finally:
+        p.db.close()
+
+
+def _play_reply(cfg, answer, tag, events):
+    voice_audio.playback(voice_audio.local_pcm(cfg, answer, tag), cfg["speaker"], tag)
+    events.put((tag, "played", None))
 
 
 def open_voice(root, profile):
@@ -21,10 +41,10 @@ def open_voice(root, profile):
     panel.title("Voice")
     cfg = voice.settings(profile)
     gate = voice.WakeGate(cfg["wake"], cfg["language"])
-    status = tk.StringVar(value="Idle")
-    detail = tk.StringVar()
-    partial = tk.StringVar()
-    draft = tk.StringVar()
+    status = tk.StringVar(panel, value="Idle")
+    detail = tk.StringVar(panel)
+    partial = tk.StringVar(panel)
+    draft = tk.StringVar(panel)
     ttk.Label(panel, textvariable=status).pack()
     canvas = tk.Canvas(panel, width=400, height=64, bg="#203344", highlightthickness=0)
     canvas.pack(fill="x")
@@ -43,11 +63,14 @@ def open_voice(root, profile):
     history = deque(maxlen=4)
     current = None
     pending = None
+    workers = []
+    timer = None
     born = 0
     last_wave = deque(maxlen=1)
 
     def state():
-        status.set(busy or ("Listening" if listening else "Idle"))
+        if not closed.is_set():
+            status.set(busy or ("Listening" if listening else "Idle"))
 
     def interrupt():
         nonlocal turn, busy, current, pending
@@ -73,15 +96,19 @@ def open_voice(root, profile):
         busy = ""
         state()
 
-    def run(fn, tag):
+    def run(fn, tag, *args):
+        workers[:] = [thread for thread in workers if thread.is_alive()]
+
         def worker():
             try:
-                fn()
+                fn(*args)
             except Exception as exc:
                 if not closed.is_set() and not tag.is_set():
                     events.put((tag, "error", str(exc)))
 
-        threading.Thread(target=worker, daemon=True).start()
+        thread = threading.Thread(target=worker, name="voice-worker")
+        thread.start()
+        workers.append(thread)
 
     def receive(kind, value):
         if closed.is_set():
@@ -130,7 +157,7 @@ def open_voice(root, profile):
                     (d for d in options if d.split(" | ")[0] == str(value)),
                     "Default" if value is None else str(value),
                 )
-            fields[name] = tk.StringVar(value=value)
+            fields[name] = tk.StringVar(dialog, value=value)
             ttk.Label(dialog, text=label).grid(row=row, column=0, sticky="w")
             widget = (
                 ttk.Combobox(
@@ -155,7 +182,7 @@ def open_voice(root, profile):
                 ttk.Button(dialog, text="Browse", command=browse).grid(
                     row=row, column=2
                 )
-        hands = tk.BooleanVar(value=cfg["hands_free"])
+        hands = tk.BooleanVar(dialog, value=cfg["hands_free"])
         ttk.Checkbutton(dialog, text="Hands-free wake detection", variable=hands).grid(
             row=len(labels), columnspan=2
         )
@@ -199,30 +226,19 @@ def open_voice(root, profile):
             parent=panel,
         ):
             return
+        if closed.is_set():
+            return
         consent = True
         born = time.monotonic()
         start_button.configure(state="disabled")
         settings_button.configure(state="disabled")
         detail.set("Loading local recognizer…")
-        run(lambda: voice_audio.capture(cfg, closed, held, receive), closed)
+        run(voice_audio.capture, closed, dict(cfg), closed, held, receive)
 
     def press(_):
         if consent and not cfg["hands_free"] and not held.is_set():
             interrupt()
             held.set()
-
-    def execute_request(req, text, tag):
-        p = Profile(profile.directory)
-        try:
-            with p.transaction():
-                if tag.is_set():
-                    if p.get("requests", req["id"])["state"] == "pending":
-                        decide(p, req["id"], req["digest"], False)
-                    return
-                result = decide(p, req["id"], req["digest"], True, stop=tag)
-            events.put((tag, "receipt", (text, result)))
-        finally:
-            p.db.close()
 
     def approve(req, text):
         nonlocal pending, current, busy
@@ -243,7 +259,11 @@ def open_voice(root, profile):
         current = req["id"]
         busy = "Speaking" if req["operation"] == "voice-cloud" else "Thinking"
         state()
-        run(lambda: execute_request(req, text, tag), tag)
+        if req["operation"] == "copy" and sys.platform == "win32":
+            # The Windows clipboard adapter owns a Tk interpreter.
+            _execute_request(profile.directory, req, text, tag, events)
+        else:
+            run(_execute_request, tag, profile.directory, req, text, tag, events)
 
     def review():
         if not consent or not draft.get().strip() or pending:
@@ -281,33 +301,40 @@ def open_voice(root, profile):
                 busy = "Speaking"
                 tag = turn
 
-                def play():
-                    voice_audio.playback(
-                        voice_audio.local_pcm(cfg, answer, tag), cfg["speaker"], tag
-                    )
-                    events.put((tag, "played", None))
-
-                run(play, tag)
+                run(_play_reply, tag, dict(cfg), answer, tag, events)
         state()
 
-    def close():
-        if not closed.is_set():
-            closed.set()
-            held.clear()
+    def shutdown():
+        nonlocal timer
+        if closed.is_set():
+            return
+        closed.set()
+        held.clear()
+        if timer is not None:
+            panel.tk.call("after", "cancel", timer)
+            timer = None
+        try:
             interrupt()
+        finally:
+            for thread in workers:
+                thread.join()
+            workers.clear()
             history.clear()
-        if panel.winfo_exists():
-            panel.destroy()
+
+    def close():
+        shutdown()
+        panel.destroy()
 
     def poll():
-        nonlocal listening, busy
+        nonlocal listening, busy, timer
+        timer = None
         if closed.is_set():
             return
         if consent and time.monotonic() - born >= 300:
             close()
             return
         try:
-            while not events.empty():
+            while not closed.is_set() and not events.empty():
                 tag, kind, value = events.get()
                 if tag is not closed and tag is not turn:
                     continue
@@ -367,7 +394,7 @@ def open_voice(root, profile):
             busy = ""
             state()
         if not closed.is_set():
-            panel.after(30, poll)
+            timer = panel.tk.call("after", 30, poll_command)
 
     settings_button = ttk.Button(row, text="Settings", command=preferences)
     settings_button.pack(side="left")
@@ -384,10 +411,11 @@ def open_voice(root, profile):
     panel.protocol("WM_DELETE_WINDOW", close)
 
     def destroyed(event):
-        if event.widget is panel and not closed.is_set():
-            closed.set()
-            held.clear()
-            interrupt()
+        if event.widget is panel:
+            shutdown()
 
     panel.bind("<Destroy>", destroyed)
+    # Tcl owns the callback until panel.destroy(). Scheduling its name avoids
+    # a recursive Python closure that cyclic GC could finalize on any thread.
+    poll_command = panel.register(poll)
     poll()
