@@ -50,7 +50,9 @@ class CloudTests(unittest.TestCase):
     def get(self, p, r, path):
         if path.endswith("/key"):
             return {"data": {"is_free_tier": self.tier}}, None
-        return {"data": self.models}, "3.8.48" if r["provider"] == "omniroute" else None
+        return {"data": self.models}, {"version": "3.8.48"} if r[
+            "provider"
+        ] == "omniroute" else {}
 
     def refresh(self):
         with patch.object(cloud, "get_json", side_effect=self.get):
@@ -194,7 +196,7 @@ class CloudTests(unittest.TestCase):
             if path == "/api/usage/token-limits?apiKeyId=test-id":
                 return {
                     "limits": [{"remaining": 42, "nextResetAt": "2030-01-01T00:00:00Z"}]
-                }, "3.8.48"
+                }, {"version": "3.8.48"}
             return self.get(p, r, path)
 
         with patch.object(cloud, "get_json", side_effect=get):
@@ -262,6 +264,10 @@ class CloudTests(unittest.TestCase):
             ):
                 receipt = decide(self.p, req["id"], req["digest"], True)
             self.assertEqual(receipt["state"], "completed", receipt)
+            self.assertEqual(
+                received[0]["provider"],
+                self.p.get("cloud_catalog", "direct")["direct_request_policy"],
+            )
             self.assertFalse(received[0]["provider"]["allow_fallbacks"])
             self.assertEqual(received[0]["provider"]["max_price"]["prompt"], 0)
             history = next(iter(cloud.report(self.p)["history"].values()))
@@ -305,7 +311,9 @@ class CloudTests(unittest.TestCase):
                     self.assertIn(
                         "Authorization", engine.headers_for(p, provider, route)
                     )
-                    return {collection: [{"id": "test", "name": "test"}]}, "3.8.48"
+                    return {collection: [{"id": "test", "name": "test"}]}, {
+                        "version": "3.8.48"
+                    }
 
                 with patch.object(cloud, "get_json", side_effect=get):
                     self.assertEqual(
@@ -315,6 +323,105 @@ class CloudTests(unittest.TestCase):
         engine.configure(self.p, {"routes": self.routes})
         with patch.object(cloud, "get_json", return_value=({"data": []}, None)):
             self.assertEqual(cloud.discover(self.p, "gateway")["state"], "failed")
+
+    def test_owner_omniroute_catalog_over_http(self):
+        # Only five owner-observed IDs are known; pad to the observed size with synthetic IDs.
+        aliases = [
+            "auto/best-" + name
+            for name in ("coding", "reasoning", "fast", "vision", "chat")
+        ]
+        ids = aliases + [f"fixture/model-{n}" for n in range(160)]
+        rows = [
+            {
+                "id": name,
+                "object": "model",
+                "created": 1,
+                "owned_by": "combo",
+                "root": name,
+                "parent": None,
+                "permission": [],
+            }
+            for name in ids
+        ]
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                requests.append((self.path, self.headers.get("Authorization")))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("x-omniroute-route-class", "CLIENT_API")
+                self.send_header("x-model-catalog-version", "model-metadata-v1:static")
+                self.end_headers()
+                self.wfile.write(json.dumps({"object": "list", "data": rows}).encode())
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.addCleanup(server.server_close)
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        self.addCleanup(worker.join)
+        self.addCleanup(server.shutdown)
+        route = dict(self.omni, model=aliases[0], port=server.server_port)
+        engine.configure(self.p, {"routes": {"gateway": route}})
+        catalog = cloud.discover(self.p, "gateway")
+        self.assertEqual(requests, [("/v1/models", "Bearer fixture-gateway-key")])
+        self.assertEqual(catalog["state"], "ready")
+        self.assertIsNone(catalog["version"])
+        self.assertEqual(catalog["route_class"], "CLIENT_API")
+        self.assertEqual(catalog["catalog_version"], "model-metadata-v1:static")
+        self.assertEqual([m["id"] for m in catalog["models"]], ids)
+        self.assertEqual(catalog["spending_class"], "unknown")
+        self.assertEqual(catalog["upstream_identity"], "unknown")
+        self.assertEqual(catalog["paid_fallback_disabled"], "unverified")
+        self.assertEqual(catalog["gateway_key_validation"], "unverified")
+        with self.assertRaises(ValueError):
+            engine.prepare(self.p, {"route": "gateway", "prompt": "x"})
+        self.assertEqual(self.p.all("cloud_reservations"), {})
+        # Versionless catalog access cannot establish management quota compatibility.
+        with patch.object(cloud, "get_json", return_value=({"limits": []}, {})):
+            snap = cloud.quota_snapshot(
+                self.p, {"route": "gateway", "key_id": "fixture"}
+            )
+        self.assertEqual(snap["state"], "UNKNOWN")
+        self.assertIn("management response", snap["reason"])
+
+    def test_discovery_diagnostics_do_not_echo_provider_content(self):
+        for status, hint in (
+            (401, "credential"),
+            (403, "permission"),
+            (404, "endpoint"),
+            (429, "rate limit"),
+            (200, "JSON"),
+        ):
+            with (
+                self.subTest(status=status),
+                patch.object(http.client, "HTTPConnection") as connect,
+            ):
+                response = (
+                    connect.return_value.getresponse.return_value.__enter__.return_value
+                )
+                response.status = status
+                response.getheader.return_value = None
+                response.read.return_value = b"<html>fixture-gateway-key</html>"
+                result = engine.probe(self.p, "gateway")
+                self.assertEqual(result["state"], "failed")
+                self.assertIn(hint, result["reason"])
+                self.assertNotIn("fixture-gateway-key", json.dumps(result))
+        for body in (
+            [],
+            {"object": "list", "data": "invalid"},
+            {"object": "list", "data": [{}]},
+        ):
+            with (
+                self.subTest(body=body),
+                patch.object(cloud, "get_json", return_value=(body, {})),
+            ):
+                result = cloud.discover(self.p, "gateway")
+                self.assertEqual(result["state"], "failed")
+                self.assertTrue(result["reason"])
 
     def test_oauth_permission_rotation_switch_and_logout(self):
         cfg = chatgpt_auth.registration(

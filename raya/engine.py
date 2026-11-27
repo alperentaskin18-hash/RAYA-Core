@@ -205,6 +205,7 @@ def probe(profile, alias):
         catalog = cloud.discover(profile, alias)
         return {
             "state": catalog["state"],
+            **({"reason": catalog["reason"]} if "reason" in catalog else {}),
             "model_listed": any(m["id"] == route["model"] for m in catalog["models"]),
             "time": catalog["time"],
         }

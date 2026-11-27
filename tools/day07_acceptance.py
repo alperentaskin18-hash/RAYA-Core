@@ -25,6 +25,11 @@ def main():
         action="store_true",
         help="prompt for an OmniRoute key in this profile",
     )
+    ap.add_argument(
+        "--catalog-only",
+        action="store_true",
+        help="check OmniRoute catalog access and exit before creating tasks",
+    )
     ap.add_argument("--route", default="auto")
     ap.add_argument(
         "--live",
@@ -32,6 +37,10 @@ def main():
         help="allow reviewed inference on eligible routes",
     )
     a = ap.parse_args()
+    if a.catalog_only and (not a.omniroute or a.live):
+        ap.error(
+            "--catalog-only requires --omniroute and cannot be combined with --live"
+        )
     p = Profile(a.profile)
     try:
         with p.transaction():
@@ -64,8 +73,14 @@ def main():
                     engine.configure(p, {"routes": routes, "offline": False})
                     report = cloud.discover(p, "owner-omni")
                 print(json.dumps({"omniroute": report}, ensure_ascii=True))
+                if a.catalog_only:
+                    return 0 if report["state"] == "ready" else 2
             else:
-                print("OmniRoute discovery skipped: no profile credential.")
+                print(
+                    "OmniRoute discovery skipped: store a credential with --store-key."
+                )
+                if a.catalog_only:
+                    return 2
         if a.live:
             for alias, r in engine.config(p)["routes"].items():
                 if alias in (a.route,) or a.route == "auto":
