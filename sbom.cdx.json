@@ -201,6 +201,101 @@
         }
       ],
       "purl": "pkg:pypi/cmake@3.31.10"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pocketsphinx",
+      "name": "pocketsphinx",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        },
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "description": "Optional English decoder and separately installed default CMU model. See the wheel notices and model README.",
+      "version": "5.0.4",
+      "purl": "pkg:pypi/pocketsphinx@5.0.4"
+    },
+    {
+      "type": "library",
+      "bom-ref": "vosk",
+      "name": "vosk",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "description": "Optional offline decoder. Language models installed separately.",
+      "version": "0.3.45",
+      "purl": "pkg:pypi/vosk@0.3.45"
+    },
+    {
+      "type": "library",
+      "bom-ref": "sounddevice",
+      "name": "sounddevice",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "Optional Python binding for native audio I/O.",
+      "version": "0.5.6",
+      "purl": "pkg:pypi/sounddevice@0.5.6"
+    },
+    {
+      "type": "library",
+      "bom-ref": "PortAudio",
+      "name": "PortAudio",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "Platform audio library supplied separately or by an optional platform wheel."
+    },
+    {
+      "type": "application",
+      "bom-ref": "eSpeak NG",
+      "name": "eSpeak NG",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "description": "Optional standalone local synthesis executable and voice data."
+    },
+    {
+      "type": "application",
+      "bom-ref": "Piper",
+      "name": "Piper",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "description": "Optional standalone OHF-Voice piper1-gpl executable; voice model licenses are separate."
     }
   ],
   "dependencies": [
@@ -211,7 +306,13 @@
         "sqlite",
         "tk",
         "pillow",
-        "llama"
+        "llama",
+        "pocketsphinx",
+        "vosk",
+        "sounddevice",
+        "PortAudio",
+        "eSpeak NG",
+        "Piper"
       ]
     },
     {

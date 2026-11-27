@@ -18,6 +18,10 @@ python -m venv .venv
 
 Activate the environment before using the shorter `raya` command. The basic CLI uses the standard library. For optional image features install `python -m pip install ".[images]"`. Tk must be provided by your Python distribution for the HUD.
 
+## Voice
+
+Open **Voice** in the HUD for push-to-talk or local wake detection, live transcription and reviewed provider replies. English and Turkish backends, device selection and offline installation are described in the [voice guide](VOICE.md).
+
 ## AI providers
 
 Use the CLI or the HUD’s **Provider settings** to choose models, set token limits and keep inference offline or enable a cloud provider. See the [provider guide](PROVIDERS.md).

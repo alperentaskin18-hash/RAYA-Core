@@ -2,6 +2,8 @@
 
 import os
 import tempfile
+import threading
+import weakref
 import tkinter as tk
 import unittest
 from unittest.mock import patch
@@ -32,15 +34,10 @@ class Hud(unittest.TestCase):
                 plan_install(profile, skill)
 
             def interact(root):
-                widgets = []
-
-                def visit(widget):
-                    widgets.append(widget)
-                    for child in widget.winfo_children():
-                        visit(child)
-
                 root.update()
-                visit(root)
+                widgets = [root]
+                for widget in widgets:
+                    widgets.extend(widget.winfo_children())
                 controls = {w.cget("text"): w for w in widgets if "text" in w.keys()}
                 controls["Requests"].invoke()
                 controls["Run skill / review request"].invoke()
@@ -56,8 +53,8 @@ class Hud(unittest.TestCase):
 
             with (
                 patch.object(tk.Tk, "mainloop", interact),
-                patch("tkinter.simpledialog.askstring", return_value="nebula"),
-                patch("tkinter.messagebox.askyesno", return_value=True),
+                patch("tkinter.simpledialog.askstring", lambda *a, **kw: "nebula"),
+                patch("tkinter.messagebox.askyesno", lambda *a, **kw: True),
             ):
                 open_hud(profile)
             profile.db.close()
@@ -104,3 +101,76 @@ class Hud(unittest.TestCase):
                 )
             finally:
                 fresh.db.close()
+
+    def test_voice_shutdown_joins_capture_and_releases_tk_on_owner(self):
+        from raya import voice_audio
+        from raya.voice_hud import open_voice
+
+        for destroy_parent in (False, True):
+            with (
+                self.subTest(destroy_parent=destroy_parent),
+                tempfile.TemporaryDirectory() as temp,
+            ):
+                profile = Profile(temp)
+                owner = threading.get_ident()
+                ready = threading.Event()
+                threads = []
+                finalized = []
+                refs = []
+
+                def track(obj):
+                    refs.append(weakref.ref(obj))
+                    weakref.finalize(
+                        obj, lambda: finalized.append(threading.get_ident())
+                    )
+                    return obj
+
+                string_var = tk.StringVar
+
+                def variable(*args, **kwargs):
+                    self.assertEqual(threading.get_ident(), owner)
+                    return track(string_var(*args, **kwargs))
+
+                def capture(cfg, stop, held, emit):
+                    threads.append(threading.current_thread())
+                    ready.set()
+                    if stop.wait(3):
+                        # Device cleanup may still be running after the stop signal.
+                        threading.Event().wait(0.04)
+                        emit("microphone", False)
+
+                root = tk.Tk()
+                parent_alive = True
+                try:
+                    with (
+                        patch.object(tk, "StringVar", variable),
+                        patch.object(voice_audio, "capture", capture),
+                        patch("tkinter.messagebox.askyesno", lambda *a, **kw: True),
+                    ):
+                        initial_timers = set(root.tk.call("after", "info"))
+                        open_voice(root, profile)
+                        panel = track(root.children["voice"])
+                        polling = set(root.tk.call("after", "info")) - initial_timers
+                        self.assertTrue(polling)
+                        buttons = {
+                            w.cget("text"): w
+                            for w in panel.winfo_children()[-1].winfo_children()
+                        }
+                        buttons["Enable session"].invoke()
+                        self.assertTrue(ready.wait(2))
+                        if destroy_parent:
+                            root.destroy()
+                            parent_alive = False
+                        else:
+                            buttons["End session"].invoke()
+                        self.assertFalse(threads[0].is_alive())
+                        self.assertTrue(
+                            polling.isdisjoint(root.tk.call("after", "info"))
+                        )
+                        del buttons, panel
+                        self.assertTrue(all(ref() is None for ref in refs))
+                        self.assertEqual(finalized, [owner] * len(refs))
+                finally:
+                    if parent_alive:
+                        root.destroy()
+                    profile.db.close()

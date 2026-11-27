@@ -215,7 +215,7 @@ def plan_run(profile, key, argument):
     )
 
 
-def decide(profile, token, approved_digest, allow, emit=None):
+def decide(profile, token, approved_digest, allow, emit=None, *, stop=None):
     from . import engine
     from .runtime import execute, install
 
@@ -248,6 +248,10 @@ def decide(profile, token, approved_digest, allow, emit=None):
         else current
     )
     baseline_digest = digest(baseline)
+    if request["operation"] == "voice-cloud":
+        from .voice import cloud_baseline
+
+        baseline_digest = cloud_baseline(profile)
     if request["operation"] in {"export", "capture"}:
         import os
 
@@ -270,6 +274,7 @@ def decide(profile, token, approved_digest, allow, emit=None):
             "generate",
             "ai-generate",
             "speech",
+            "voice-cloud",
             "export",
             "browse",
             "copy",
@@ -316,6 +321,16 @@ def decide(profile, token, approved_digest, allow, emit=None):
                 from .desktop import perform
 
                 request["result"] = perform(request["operation"], request["content"])
+            elif request["operation"] == "voice-cloud":
+                import threading
+                from .voice_audio import cloud_pcm, playback
+
+                stop = stop or threading.Event()
+                data = request["content"]
+                playback(cloud_pcm(profile, data, stop), data["speaker"], stop)
+                if stop.is_set():
+                    raise engine.Cancelled("speech interrupted")
+                request["result"] = {"played": True}
             elif request["operation"] == "speech":
                 from .speech import speech
 

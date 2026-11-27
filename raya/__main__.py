@@ -59,7 +59,7 @@ def dispatch(p, cmd, a):
                 "browse": "configured system browser",
                 "tone": "Windows audio device",
                 "generate": "configured provider, available model and request approval",
-                "speech": "Windows recognizer / synthesizer and matching audio hardware",
+                "speech": "Windows native speech; voice HUD with optional local audio and language models",
                 "monitor": "local profile filesystem",
                 "plan": "manual development steps",
             },
@@ -73,6 +73,12 @@ def dispatch(p, cmd, a):
         }
     if cmd in {"browse", "copy", "tone"}:
         return desktop.plan(p, cmd, a)
+    if cmd in {"voice-config", "voice-devices"}:
+        from . import voice, voice_audio
+
+        if cmd == "voice-devices":
+            return voice_audio.devices()
+        return voice.configure(p, a) if a else voice.settings(p)
     if cmd == "devices":
         return speech.speech({"operation": "devices"})
     if cmd in {"speak", "listen", "conversation"}:
