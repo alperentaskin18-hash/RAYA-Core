@@ -15,6 +15,9 @@ def request(profile, args):
         from .engine import prepare
 
         return prepare(profile, args)
+    from .cloud import strict
+
+    require(not strict(profile), "use a verified route in strict mode")
     prompt = text_field(args["prompt"], "prompt", 8192)
     require(
         profile.settings().get("provider") == "local-llama", "local provider disabled"

@@ -60,6 +60,7 @@ class MVP(unittest.TestCase):
                 self.call(
                     "set", {"field": "provider_port", "value": server.server_port}
                 )
+                self.call("set", {"field": "billing_policy", "value": "legacy"})
                 self.call("set", {"field": "provider", "value": "local-llama"})
                 self.assertEqual(self.call("provider-status")["state"], "ready")
                 first, second, third = [

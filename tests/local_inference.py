@@ -111,6 +111,7 @@ def main():
             return json.loads(result.stdout)
 
         try:
+            cli("set", {"field": "billing_policy", "value": "legacy"})
             cli("set", {"field": "provider_port", "value": port})
             cli("set", {"field": "provider", "value": "local-llama"})
             for _ in range(100):

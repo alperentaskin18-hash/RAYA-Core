@@ -208,6 +208,7 @@ class EngineIntegration(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.dir = Path(temp.name)
         self.p = Profile(self.dir)
+        self.p.configure("billing_policy", "legacy")
         self.addCleanup(self.p.db.close)
         srv = self.srv = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
         srv.calls = []

@@ -2,11 +2,14 @@
 
 A new profile starts with generation disabled. Saving AI settings enables the unified engine. Routes, preferences and usage records live in that profile. No provider SDK is required.
 
+Strict spending admission is the default. Read the [cloud control guide](CLOUD.md) for verified free routes. For the operator-managed local server example below, use a separate profile and explicitly authorize legacy billing.
+
 ## Run locally
 
 Start an operator-supplied Ollama or llama.cpp server and choose a model it already serves. Use its actual model ID. The example uses the OpenAI-compatible chat endpoint of a local llama.cpp server on port 8080.
 
 ```sh
+raya set '{"field":"billing_policy","value":"legacy"}'
 raya ai-config '{"offline":true,"routes":{"cpu":{"provider":"llama.cpp","model":"fixture","port":8080,"context_tokens":4096,"features":["stream"]}},"preferred":"cpu"}'
 raya providers
 raya ai-health '{"route":"cpu"}'

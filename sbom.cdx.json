@@ -296,6 +296,34 @@
         }
       ],
       "description": "Optional standalone OHF-Voice piper1-gpl executable; voice model licenses are separate."
+    },
+    {
+      "type": "application",
+      "bom-ref": "git",
+      "name": "Git",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-2.0-only"
+          }
+        }
+      ],
+      "description": "Operator-supplied Git executable for isolated worktrees and proposal refs."
+    },
+    {
+      "type": "library",
+      "bom-ref": "libseccomp",
+      "name": "libseccomp",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-only"
+          }
+        }
+      ],
+      "description": "Linux system library used to confine generated functions, including inside WSL. Supplied separately."
     }
   ],
   "dependencies": [
@@ -312,7 +340,9 @@
         "sounddevice",
         "PortAudio",
         "eSpeak NG",
-        "Piper"
+        "Piper",
+        "git",
+        "libseccomp"
       ]
     },
     {

@@ -15,3 +15,7 @@ Run reviewed application code on a trusted single-user machine. Use a profile un
 - Index only explicitly chosen, locally controlled project trees. Hidden directories, known private directories, linked paths and multiply-linked source files are excluded. Use OS-level isolation for adversarial repositories or shared writable directories. Review imports, installation proposals and source rights separately.
 
 Hosted Linux and Windows CI succeeded for the tested application revision. Real-device behavior and Windows ACLs in an operator installation require local validation. See RELEASE-NOTES.md.
+
+## Cloud-assisted development
+
+Use a dedicated OS-private profile. The host user, Git repository configuration, Python interpreter, WSL distribution and local Git binary are trusted. Provider tags and manual grant observations alone cannot authorize generation. Check the exact source and account in each proposal before approving disclosure. The restricted runner admits only bounded single-file Python tasks under a Linux syscall allowlist, with file and network denial self-checks, CPU, memory and output limits. Use a separate review and merge process for any proposal. See [cloud control](CLOUD.md).

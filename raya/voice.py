@@ -185,6 +185,9 @@ def cloud_baseline(profile):
 
 def propose_cloud(profile, text):
     cfg = settings(profile)
+    from .cloud import strict
+
+    require(not strict(profile), "cloud speech has no verified zero-price contract")
     provider = cfg["synthesis"]
     require(
         provider in CLOUD and not engine.config(profile)["offline"],
