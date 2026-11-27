@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,29 +21,22 @@ class DevelopmentTests(unittest.TestCase):
         self.addCleanup(self.p.db.close)
         repo = self.repo = self.root / "repo"
         repo.mkdir()
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        targets = repo / "development_targets"
-        targets.mkdir()
-        (targets / "fixture.py").write_text(
-            "def solve(value):\n    return None\n", encoding="utf-8"
-        )
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo),
-                "-c",
-                "user.name=Fixture",
-                "-c",
-                "user.email=fixture@localhost.invalid",
-                "commit",
-                "-qm",
-                "fixture",
-            ],
-            check=True,
-        )
+        dev.git(repo, "init", "-q")
+        # Exercise a Windows-style checkout even on Linux. Both isolated and
+        # ambient Git must agree on the canonical LF blob.
+        (repo / ".gitattributes").write_bytes(b"*.py text eol=crlf\n")
+        self.fixture = repo / "development_targets" / "fixture.py"
+        self.fixture.parent.mkdir()
+        self.original = b"def solve(value):\r\n    return None\r\n"
+        self.fixture.write_bytes(self.original)
+        dev.git(repo, "add", ".gitattributes", "development_targets/fixture.py")
+        dev.git(repo, "commit", "-qm", "fixture")
         self.base = dev.git(repo, "rev-parse", "HEAD")
+        self.assertEqual(
+            dev.git(repo, "show", ":development_targets/fixture.py"),
+            self.original.replace(b"\r\n", b"\n"),
+        )
+        self.assertEqual(dev.git(repo, "status", "--porcelain"), b"")
         scope = patch.dict(
             dev.TARGETS,
             {"feature": ("fixture", "Return the supplied synthetic scalar.")},
@@ -112,11 +104,27 @@ class DevelopmentTests(unittest.TestCase):
             self.answer(req, '{"path":"raya/core.py","replacement":"untrusted"}')
             result = dev.step(self.p, ident)
             self.assertEqual(result["phase"], "stopped" if i == 2 else "repair")
+        self.assertEqual(self.fixture.read_bytes(), self.original)
         self.assertEqual(dev.git(self.repo, "status", "--porcelain"), b"")
         self.assertEqual(dev.git(self.repo, "rev-parse", "HEAD"), self.base)
         self.assertEqual(
             next(iter(self.p.all("cloud_evaluations").values()))["passes"], 0
         )
+
+    def test_unregistered_directory_cannot_stand_in_for_worktree(self):
+        # A profile inside a checkout lets Git find the primary HEAD by walking
+        # upwards from an empty task directory.
+        p = Profile(self.repo / "private")
+        self.addCleanup(p.db.close)
+        ident = dev.start(p, {"kind": "feature", "repository": str(self.repo)})["id"]
+        task = p.get("dev_tasks", ident)
+        path = dev.paths(p, task)
+        path.mkdir(parents=True)
+        self.assertEqual(dev.git(path, "rev-parse", "HEAD"), self.base)
+        with self.assertRaisesRegex(ValueError, "detached task worktree"):
+            dev.checkout(p, task)
+        self.assertEqual(list(path.iterdir()), [])
+        self.assertEqual(self.fixture.read_bytes(), self.original)
 
     def test_os_confinement_and_output_comparison(self):
         if sys.platform.startswith("linux"):
@@ -148,12 +156,13 @@ class DevelopmentTests(unittest.TestCase):
         self.answer(dev.step(self.p, ident)["approval"], "fixture planning reply")
         req = dev.step(self.p, ident)["approval"]
         t = self.p.get("dev_tasks", ident)
+        candidate = "def solve(value):\r\n    return value\r\n"
         self.answer(
             req,
             json.dumps(
                 {
                     "base_digest": digest(t["original"]),
-                    "replacement": "def solve(value):\n    return value\n",
+                    "replacement": candidate,
                 }
             ),
         )
@@ -165,6 +174,11 @@ class DevelopmentTests(unittest.TestCase):
             else:
                 result = dev.step(self.p, ident)
         self.assertEqual(result["phase"], "review", result)
+        tree = dev.paths(self.p, t)
+        canonical = candidate.replace("\r\n", "\n").encode()
+        self.assertEqual((tree / t["path"]).read_bytes(), canonical)
+        self.assertEqual(self.fixture.read_bytes(), self.original)
+        self.assertEqual(dev.git(self.repo, "status", "--porcelain"), b"")
         self.assertEqual(dev.git(self.repo, "rev-parse", "HEAD"), self.base)
         for allow in (False, True):
             req = dev.commit_proposal(self.p, ident)
@@ -174,6 +188,8 @@ class DevelopmentTests(unittest.TestCase):
                 result["state"], "completed" if allow else "denied", result
             )
         sha = self.p.get("dev_tasks", ident)["proposed_commit"]
+        self.assertEqual(dev.git(self.repo, "show", sha + ":" + t["path"]), canonical)
+        self.assertEqual(dev.git(self.repo, "status", "--porcelain"), b"")
         self.assertEqual(
             dev.git(self.repo, "diff", "--name-only", self.base.decode().strip(), sha)
             .decode()

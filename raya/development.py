@@ -237,9 +237,45 @@ def propose_model(p, t):
     return dict(summary(t), approval=req)
 
 
+def verify_worktree(t, path):
+    # Git can discover a parent repository from an ordinary directory. Require
+    # the task path itself to be a registered, detached checkout of this base.
+    records = git(t["repository"], "worktree", "list", "--porcelain", "-z").split(
+        b"\0\0"
+    )
+    for record in records[1:]:  # The first record is the primary worktree.
+        location, *fields = record.split(b"\0")
+        if (
+            location.startswith(b"worktree ")
+            and Path(os.fsdecode(location[len(b"worktree ") :])) == path
+            and b"detached" in fields
+            and b"HEAD " + t["base"].encode("ascii") in fields
+        ):
+            # Confirm Git actually selected this worktree's private index. A
+            # stale registration alone survives a missing or moved .git file.
+            admin = Path(
+                os.fsdecode(
+                    git(path, "rev-parse", "--absolute-git-dir").rstrip(b"\r\n")
+                )
+            )
+            backlink = admin / "gitdir"
+            require(
+                child(path, ".git").is_file() and backlink.is_file(),
+                "missing task worktree linkage",
+            )
+            linked = os.fsdecode(backlink.read_bytes().rstrip(b"\r\n"))
+            require(
+                (admin / linked).resolve() == path / ".git",
+                "incorrect task worktree linkage",
+            )
+            return
+    raise ValueError("expected registered detached task worktree")
+
+
 def checkout(p, t):
     path = paths(p, t)
-    if not path.exists():
+    creating = not path.exists()
+    if creating:
         path.parent.mkdir(mode=0o700, exist_ok=True)
         git(
             t["repository"],
@@ -250,11 +286,9 @@ def checkout(p, t):
             str(path),
             t["base"],
         )
+    verify_worktree(t, path)
+    if creating:
         git(path, "read-tree", t["base"])
-    require(
-        git(path, "rev-parse", "HEAD").decode().strip() == t["base"],
-        "worktree baseline changed",
-    )
     return path
 
 
@@ -272,6 +306,8 @@ def test_candidate(p, t, answer):
         isinstance(code, str) and 0 < len(code) <= 16384 and "\x00" not in code,
         "candidate too large",
     )
+    # hash-object stores raw bytes. Review, execute and commit the same LF source.
+    code = code.replace("\r\n", "\n")
     t["candidate"] = code
     tree = checkout(p, t)
     folder = child(tree, "development_targets", directory=True)
@@ -447,6 +483,7 @@ def cancel(p, ident, rollback=False):
     if rollback:
         path = paths(p, t)
         if path.is_dir():
+            verify_worktree(t, path)
             allowed = {".git", "development_targets", t["path"]}
             require(
                 all(
