@@ -115,6 +115,10 @@ def number(value):
         return None
 
 
+class DiscoveryError(ValueError):
+    """Safe operator diagnostic. May contain an HTTP status, never a response body."""
+
+
 def get_json(p, route, path):
     from . import engine
 
@@ -131,13 +135,33 @@ def get_json(p, route, path):
         conn.request("GET", path, headers=engine.headers_for(p, provider, route))
         with conn.getresponse() as response:
             observe(p, route, response)
-            require(
-                response.status == 200,
-                f"catalog service returned HTTP {response.status}",
-            )
+            if response.status != 200:
+                hint = {
+                    401: "check the stored bearer credential",
+                    403: "check the credential's permission for this endpoint",
+                    404: "check the configured port, API endpoint and gateway installation",
+                    429: "wait for the rate limit to reset",
+                }.get(response.status, "check the service status and API endpoint")
+                raise DiscoveryError(f"HTTP {response.status}: {hint}")
             raw = response.read(4 * 1024 * 1024 + 1)
             require(len(raw) <= 4 * 1024 * 1024, "catalog exceeds size limit")
-            return json.loads(raw), response.getheader("X-OmniRoute-Version")
+            metadata = {}
+            if provider == "omniroute":
+                version = response.getheader("X-OmniRoute-Version") or ""
+                if re.fullmatch(r"[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}", version):
+                    metadata["version"] = version
+                # Only expose recognized header values; never reflect arbitrary bytes.
+                for header, field, expected in (
+                    ("x-omniroute-route-class", "route_class", "CLIENT_API"),
+                    (
+                        "x-model-catalog-version",
+                        "catalog_version",
+                        "model-metadata-v1:static",
+                    ),
+                ):
+                    if response.getheader(header) == expected:
+                        metadata[field] = expected
+            return json.loads(raw), metadata
     finally:
         conn.close()
 
@@ -188,15 +212,38 @@ def google_unbilled(p, route):
 def discover(p, alias):
     try:
         return _discover(p, alias)
-    except (ValueError, OSError, KeyError, TypeError, http.client.HTTPException):
-        record = {
-            "state": "failed",
-            "time": int(time.time()),
-            "models": [],
-            "reason": "account, endpoint or protocol evidence unavailable",
+    except DiscoveryError as exc:
+        reason = str(exc)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        reason = (
+            "Expected JSON. Check that the configured endpoint serves the API catalog."
+        )
+    except (TimeoutError, ConnectionError, OSError, http.client.HTTPException):
+        reason = (
+            "Could not read the catalog. Check service availability, host and port."
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        # Only relay messages produced by known local validators.
+        hints = {
+            "unknown route": "Configure the route with ai-config before discovery.",
+            "offline mode blocks discovery": "Enable cloud access in this profile before discovery.",
+            "provider credential unavailable": "Store a valid key for this route with secret-set.",
+            "catalog exceeds size limit": "Catalog exceeds the 4 MiB response limit.",
+            "no verified independent account model-list contract": "This provider has no verified catalog endpoint.",
+            "Google account billing evidence unavailable": "Check the Google billing read credential and its project permissions.",
+            "Gemini key/project mismatch": "Configure the numeric project belonging to the Gemini key.",
         }
-        p.put("cloud_catalog", alias, record)
-        return record
+        reason = hints.get(
+            str(exc), "Check the provider's catalog format and account evidence."
+        )
+    record = {
+        "state": "failed",
+        "time": int(time.time()),
+        "models": [],
+        "reason": reason,
+    }
+    p.put("cloud_catalog", alias, record)
+    return record
 
 
 def _discover(p, alias):
@@ -219,11 +266,12 @@ def _discover(p, alias):
     now = int(time.time())
     # Invalidate earlier eligibility even when this refresh fails.
     p.put("cloud_catalog", alias, {"time": now, "state": "failed", "models": []})
-    response, version = get_json(p, route, path)
-    if provider == "omniroute":
-        require(
-            isinstance(version, str) and re.fullmatch(r"3\.8\.\d+", version),
-            "unverified OmniRoute protocol version",
+    response, metadata = get_json(p, route, path)
+    if not isinstance(response, dict):
+        raise DiscoveryError("Expected a JSON object containing the model catalog.")
+    if provider == "omniroute" and response.get("object", "list") != "list":
+        raise DiscoveryError(
+            "GET /v1/models must return an OpenAI-compatible model list."
         )
     items = response.get(
         "result"
@@ -232,7 +280,10 @@ def _discover(p, alias):
         if provider == "cohere"
         else "data"
     )
-    require(isinstance(items, list), "invalid model catalog")
+    if not isinstance(items, list):
+        raise DiscoveryError(
+            f"Expected a model array at {path}. Check the API endpoint."
+        )
     models = []
     protected = tuple(vault.values(p))
     for item in items[:4096]:
@@ -243,7 +294,12 @@ def _discover(p, alias):
             if provider not in ("cohere", "cloudflare")
             else item.get("name")
         )
-        if not isinstance(name, str) or not name.isprintable() or len(name) > 256:
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not name.isprintable()
+            or len(name) > 256
+        ):
             continue
         if any(secret in name for secret in protected):
             continue
@@ -295,11 +351,29 @@ def _discover(p, alias):
         "state": "ready",
         "time": now,
         "path": path,
-        "version": version,
+        "version": (metadata or {}).get("version"),
         "models": models,
         "route": binding(route),
         "key_binding": credential_stamp(p, route),
     }
+    if provider == "omniroute":
+        if not models and (items or response.get("object") != "list"):
+            raise DiscoveryError(
+                "GET /v1/models returned no readable model IDs. Check the catalog data array."
+            )
+        record.update(
+            catalog_compatibility="openai-model-list",
+            gateway_access="HTTP 200 with configured bearer",
+            gateway_key_validation="unverified",
+            upstream_identity="unknown",
+            paid_fallback_disabled="unverified",
+            **{
+                k: metadata[k]
+                for k in ("catalog_version", "route_class")
+                if k in (metadata or {})
+            },
+        )
+        record["spending_class"] = classification(p, alias, route)
     if not any(m["id"] == route["model"] for m in models) and provider != "omniroute":
         record["configured_model_missing"] = True
     if provider == "gemini":
@@ -308,6 +382,7 @@ def _discover(p, alias):
         payload, _ = get_json(p, route, "/api/v1/key")
         data = payload.get("data") or {}
         record["key_source"] = "/api/v1/key"
+        record["direct_request_policy"] = wire.openrouter_policy(strict(p))
         record["key"] = {
             k: data[k]
             for k in ("is_free_tier", "limit", "limit_remaining", "usage")
@@ -894,10 +969,18 @@ def quota_snapshot(p, args):
                 "discover gateway version first",
             )
             path = "/api/usage/token-limits"
-            data, version = get_json(
+            data, metadata = get_json(
                 p, route, path + "?" + urlencode({"apiKeyId": key_id})
             )
-            require(version == record.get("version"), "gateway version changed")
+            version = metadata.get("version")
+            if (
+                not version
+                or not re.fullmatch(r"3\.8\.[0-9]+", version)
+                or record.get("version") not in (None, version)
+            ):
+                raise DiscoveryError(
+                    "Management quota requires a matching supported 3.8.x version on the management response."
+                )
             rows = data.get("limits") if isinstance(data, dict) else data
             require(isinstance(rows, list), "unsupported quota schema")
             safe = []
@@ -924,6 +1007,8 @@ def quota_snapshot(p, args):
                     source="cached response headers",
                     observation=headers,
                 )
+    except DiscoveryError as exc:
+        snapshot["reason"] = str(exc)
     except (ValueError, OSError, TypeError, KeyError, http.client.HTTPException):
         snapshot["reason"] = "provider did not supply verifiable quota information"
     p.put("cloud_quota", alias, snapshot)

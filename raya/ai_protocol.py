@@ -121,6 +121,13 @@ def tool_map(tools):
     return result
 
 
+def openrouter_policy(zero_cost):
+    policy = {"allow_fallbacks": False, "require_parameters": True}
+    if zero_cost:
+        policy["max_price"] = {"prompt": 0, "completion": 0, "request": 0}
+    return policy
+
+
 def payload(route, content):
     provider = route["provider"]
     tools = content["tools"]
@@ -225,9 +232,7 @@ def payload(route, content):
                 "json_schema": {"name": "result", "schema": spec},
             }
     if provider == "openrouter":
-        body["provider"] = {"allow_fallbacks": False, "require_parameters": True}
-    if provider == "openrouter" and content.get("zero_cost"):
-        body["provider"]["max_price"] = {"prompt": 0, "completion": 0, "request": 0}
+        body["provider"] = openrouter_policy(content.get("zero_cost"))
     if content["stream"]:
         body["stream_options"] = {"include_usage": True}
     return body

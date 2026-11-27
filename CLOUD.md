@@ -25,7 +25,7 @@ Use `cloud-catalog` for the observed model IDs, parameter support and token limi
 | Google Gemini | Gemini OpenAI-compatible catalog and generation. Store a separate short-lived Google read token using `secret-set google-billing-read`. Configure the numeric `project` belonging to the Gemini API key. | API Keys lookup binds the key to the project. Cloud Billing must report billing disabled and no attached billing account, including at admission. The model must be listed. |
 | Groq, SambaNova, NVIDIA NIM, Mistral | OpenAI-compatible catalog and chat transports on fixed HTTPS origins. Use provider IDs `groq`, `sambanova`, `nim`, `mistral`. | Account-level zero-overage evidence unavailable. |
 | Cloudflare Workers AI, Cohere | Workers AI uses the account-scoped search and chat endpoints. Set the 32-character Cloudflare account ID. Cohere uses its v1 catalog and compatibility chat endpoint. | Compute allowance and trial entitlement remain unknown without enforceable account evidence. |
-| OmniRoute | Bearer-authenticated loopback model discovery, version header and optional management quota read. The accepted catalog protocol is 3.8.x. | Upstream price, account and fallback cannot be established from model IDs, gateway balances or reported zero cost. Generation is blocked. |
+| OmniRoute | Loopback GET /v1/models sends the configured bearer. The OpenAI-compatible list works with an absent build-version header. Management quota has a separate version check. | Upstream price, account and fallback cannot be established from model IDs, gateway balances or reported zero cost. Generation is blocked. |
 | Sign in with ChatGPT | Conditional independent public-client OAuth and text Responses transport. PKCE, state, loopback redirect, refresh, account switch and logout are covered by fixtures. | Independent client registration, live interoperability and a verifiable subscription ceiling remain prerequisites. No accounts have been certified. |
 
 For independent ChatGPT registration, use `cloud-register` only with an assignment from OpenAI covering the client, scopes, exact loopback callback and Responses destination. Fields are `client_id`, `scopes`, `port`, `responses_url`, `reference`, `owner_confirms_registration`, `distribution="open-source"` and `paid_product=false`. Run `cloud-login`, `cloud-refresh`, `cloud-switch` or `cloud-logout` with an `account` alias. Revocation is attempted when the issuer advertises it. Use the provider account controls if remote revocation fails. The integration supplies no client registration and imports no browser or Codex credentials.
@@ -44,6 +44,41 @@ Minute and day ceilings use rolling windows. Month ceilings use UTC calendar mon
 Manual funding declarations never enable dispatch. Hosted tools, unknown billing, paid fallback and automatic purchases are excluded from strict admission. The one tool evaluation declares a local function signature and checks the returned arguments without executing any external tool. Legacy DAY_05 and DAY_06 transports can be explicitly selected in a **separate, unlocked** profile. Only enable legacy billing for a service you have independently authorized.
 
 Use `cloud-eval` with a route and kind `reasoning` or `tools`, approve the proposal, then call `cloud-score` with the request ID. Development runs also score feature, repair and optimization outcomes. Rankings use measured pass rates, local quota headroom, token efficiency and latency. No vendor benchmarks or scores ship with the source.
+
+## Verify OmniRoute on the owner's Windows host
+
+From the checkout, run a catalog-only check. Omit `--store-key` if the profile already holds the gateway key. Exit code 0 means the catalog was readable. No generation request or development task is created.
+
+```powershell
+$env:RAYA_PROFILE = Join-Path $env:LOCALAPPDATA 'RAYA-Day07'
+py -3.12 tools/day07_acceptance.py --profile $env:RAYA_PROFILE --omniroute --store-key --catalog-only
+```
+
+On the reported v3.8.48 installation, look for `state=ready`, `route_class=CLIENT_API`, `catalog_version=model-metadata-v1:static` and the advertised IDs. The build version can be null. A 200 records that the request carrying the bearer succeeded. To verify the key itself, the documented read-only `POST /api/cloud/auth` validates it. In PowerShell 7 the following keeps the key out of command history and discards the returned connection metadata:
+
+```powershell
+$key = Read-Host 'OmniRoute client key' -AsSecureString
+try {
+    $check = Invoke-WebRequest -Method Post -Uri 'http://127.0.0.1:20128/api/cloud/auth' -Authentication Bearer -Token $key -AllowUnencryptedAuthentication -MaximumRedirection 0
+    if ($check.StatusCode -eq 200 -and ($check.Content | ConvertFrom-Json).connections -is [array]) { 'Gateway key validated' } else { 'Key validation unconfirmed' }
+} finally { Remove-Variable key,check -ErrorAction SilentlyContinue }
+```
+
+**Verify the selected upstream and fallback before relying on a route.**
+
+1. In the local gateway management UI, inspect the exact client key's allowed models, provider connections and account. For an explicit alias, `POST /api/cloud/model/resolve` with `{"alias":"YOUR_ALIAS"}` can identify its configured provider/model. A 404 leaves resolution unknown. For combos and automatic IDs inspect all enabled model-to-combo mappings, nested steps, eligible accounts, retries, alternate providers and fallback or parallel branches. The documented management reads include `GET /api/model-combo-mappings`, `GET /api/models/alias` and `GET /api/combos`. Use management credentials only in the owner's gateway.
+2. Check the **upstream provider** for the exact account, model, current rates and overage policy. A gateway price of zero can mean unpriced. Verify that the effective gateway policy pins the authorized target and prevents substitution on failure. Save the account reference, model, configuration revision and observation time locally, without keys. An alias resolution or successful historical request cannot establish future fallback behavior. R.A.Y.A keeps gateway generation blocked while effective upstream and spend enforcement remain unverified.
+3. For a path R.A.Y.A can verify directly, configure an authorized OpenRouter route named `free` as above. Use the exact upstream model ID and its own account key. These PowerShell commands read provider evidence and show the routing controls R.A.Y.A would send, without inference:
+
+```powershell
+$d = '{"route":"free"}' | py -3.12 -m raya cloud-discover - | ConvertFrom-Json
+$r = py -3.12 -m raya cloud-report | ConvertFrom-Json
+$r.routes.free | Select-Object model,price_class
+$d.key | Select-Object is_free_tier
+$d.direct_request_policy | ConvertTo-Json -Depth 3
+```
+
+For this direct route require `verified_free`, a free-tier key, `allow_fallbacks=false`, `require_parameters=true` and zero price ceilings. Use the route by name with an empty R.A.Y.A fallback list. This evidence applies only to the direct route. [OmniRoute catalog implementation](https://github.com/diegosouzapw/OmniRoute/blob/v3.8.48/src/app/api/v1/models/catalog.ts) · [OmniRoute management API](https://github.com/diegosouzapw/OmniRoute/blob/v3.8.48/docs/reference/API_REFERENCE.md)
 
 ## Local Windows acceptance
 
