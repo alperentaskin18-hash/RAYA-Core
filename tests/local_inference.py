@@ -25,6 +25,7 @@ def make_fixture(path):
     w.add_feed_forward_length(32)
     w.add_head_count(2)
     w.add_layer_norm_rms_eps(1e-5)
+    w.add_chat_template("{{ messages[-1]['content'] }}")
     w.add_tokenizer_model("llama")
     w.add_token_list(tokens)
     w.add_token_scores([0.0] * len(tokens))
@@ -72,6 +73,9 @@ def main():
                     str(server),
                     "-m",
                     str(root / "model.gguf"),
+                    "--jinja",
+                    "--alias",
+                    "fixture",
                     "--host",
                     "127.0.0.1",
                     "--port",
@@ -122,6 +126,29 @@ def main():
             if result.get("result") != "OK" or result["state"] != "completed":
                 raise RuntimeError(str(result))
             print("Real llama-server CPU completion: Q -> OK")
+            cli(
+                "ai-config",
+                {
+                    "routes": {
+                        "cpu": {
+                            "provider": "llama.cpp",
+                            "model": "fixture",
+                            "port": port,
+                            "features": ["stream"],
+                            "context_tokens": 512,
+                        }
+                    },
+                    "max_output_tokens": 8,
+                },
+            )
+            if cli("ai-health", {"route": "cpu"})["state"] != "ready":
+                raise RuntimeError("unified health check failed")
+            for streaming in (False, True):
+                req = cli("generate", {"prompt": "Q", "stream": streaming})
+                receipt = cli("approve", {"id": req["id"], "digest": req["digest"]})
+                if receipt["state"] != "completed" or receipt["result"]["text"] != "OK":
+                    raise RuntimeError(str(receipt))
+                print("Unified llama.cpp CPU completion:", receipt["result"])
         finally:
             process.terminate()
             try:

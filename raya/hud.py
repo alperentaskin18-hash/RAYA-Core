@@ -4,6 +4,7 @@ import json
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+from .ai_settings import open_settings
 from .core import decide, plan_run
 
 
@@ -83,6 +84,10 @@ def open_hud(profile):
             refresh()
         except (ValueError, OSError) as exc:
             messagebox.showerror("Operation failed", str(exc))
+
+    ttk.Button(
+        bar, text="Provider settings", command=lambda: open_settings(root, profile)
+    ).pack(side="right")
 
     for group in groups:
         ttk.Radiobutton(
