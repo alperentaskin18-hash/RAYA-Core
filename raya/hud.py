@@ -89,6 +89,12 @@ def open_hud(profile):
         bar, text="Provider settings", command=lambda: open_settings(root, profile)
     ).pack(side="right")
 
+    from .voice_hud import open_voice
+
+    ttk.Button(bar, text="Voice", command=lambda: open_voice(root, profile)).pack(
+        side="right"
+    )
+
     for group in groups:
         ttk.Radiobutton(
             bar, text=group.title(), variable=category, value=group, command=refresh
