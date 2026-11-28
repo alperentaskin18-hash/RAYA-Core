@@ -16,11 +16,29 @@ python -m venv .venv
 .venv\Scripts\raya.exe capabilities
 ```
 
-Activate the environment before using the shorter `raya` command. The basic CLI uses the standard library. For optional image features install `python -m pip install ".[images]"`. Tk must be provided by your Python distribution for the HUD.
+Activate the environment before using the shorter `raya` command. The basic CLI uses the standard library. Installation includes Pillow and psutil for the default REACTOR desktop. Tk must be provided by your Python distribution for the HUD.
+
+## REACTOR desktop on Windows
+
+From a PowerShell checkout of the development branch:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install ".[voice]"
+.\.venv\Scripts\python.exe -m raya hud
+```
+
+The seven Turkish pages use the V6.1 artwork. The desktop opens the existing Core profile. To try a separate profile, put `--profile "$env:LOCALAPPDATA\RAYA-Reactor-Trial"` before `hud`. Run `hud-legacy` in place of `hud` for the original Core inspector. Use a Python distribution with Tcl/Tk. The basic frontend works without a local LLM, GPU or microphone. Speech models and optional synthesis executables are operator-supplied. [Voice setup](VOICE.md)
+
+Use `/yardım` in the bottom bar for local commands. Plain text proposes generation and `/akış` requests streaming. The Home footer opens the conversation history. Review the destination, scope, ID and digest before approving. Closing the desktop withdraws its outstanding proposals. The AI control center provides account settings, discovery, quota observations and evaluations. DAY_07 live billing and inference acceptance remains partial. [Provider verification](CLOUD.md)
+
+F11 switches fullscreen, F6 changes the frame target, F8 shows rendering time, Space pauses, and Ctrl+1–7 navigates the pages. Display preferences use separate HUD records. Weather starts off. Enabling it requires network access, explicit consent to send the selected city, and non-commercial use of Open-Meteo. Select an empty city to disable weather. Physical audio and GPU support depend on the host.
+
+GUI verification uses a synthetic profile, real Core skill execution and a Linux virtual display. The screenshots contain synthetic task and route names. CPU, RAM, network and time are sampled from the host. The acceptance script measures frame delivery, time from app initialization to first layout, navigation-to-draw time, process CPU and peak RSS. Three stationary regions are compared with the supplied PNG at 1672×941. Dynamic text, live hardware data, clock and rotating particles change during capture. Run `python tools/reactor_acceptance.py OUTPUT_DIRECTORY` on a display at least that large. [Screenshots and measurements](evidence/day08/)
 
 ## Voice
 
-Open **Voice** in the HUD for push-to-talk or local wake detection, live transcription and reviewed provider replies. English and Turkish backends, device selection and offline installation are described in the [voice guide](VOICE.md).
+Open the microphone control in the REACTOR command bar for push-to-talk or local wake detection, live transcription and reviewed provider replies. English and Turkish backends, device selection and offline installation are described in the [voice guide](VOICE.md).
 
 ## AI providers
 
@@ -50,7 +68,7 @@ To reproduce the real-engine smoke test, use a CPU llama-server and the matching
 
 ## Review a skill
 
-For a manifest you have permission to use, pass its JSON to `python -m raya discover -` on standard input. Use `install -` with the same input to propose installation. Read the returned operation and destination, then use `approve` with its ID and digest. A subsequent `run` request has its own approval. The Tk HUD exposes the same review and consent workflow.
+For a manifest you have permission to use, pass its JSON to `python -m raya discover -` on standard input. Use `install -` with the same input to propose installation. Read the returned operation and destination, then use `approve` with its ID and digest. A subsequent `run` request has its own approval. The Görevler page exposes request review. Yetenekler plans runs of registered skills.
 
 ## Commands
 

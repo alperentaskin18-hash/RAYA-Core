@@ -13,6 +13,20 @@ from . import engine, voice, voice_audio
 from .core import Profile, decide
 
 
+class VoiceEvents(queue.Queue):
+    """Abort capture on overload instead of accumulating audio events or blocking Tk."""
+
+    def __init__(self):
+        super().__init__(maxsize=128)
+        self.overflow = threading.Event()
+
+    def put(self, item):
+        try:
+            super().put(item, block=False)
+        except queue.Full:
+            self.overflow.set()
+
+
 def _execute_request(directory, req, text, tag, events):
     p = Profile(directory)
     try:
@@ -32,7 +46,7 @@ def _play_reply(cfg, answer, tag, events):
     events.put((tag, "played", None))
 
 
-def open_voice(root, profile):
+def open_voice(root, profile, *, on_state=None, strict_only=False):
     # Only one voice session may own this HUD's devices.
     if "voice" in root.children:
         root.children["voice"].lift()
@@ -59,7 +73,7 @@ def open_voice(root, profile):
     held = threading.Event()
     closed = threading.Event()
     turn = threading.Event()
-    events = queue.SimpleQueue()
+    events = VoiceEvents()
     history = deque(maxlen=4)
     current = None
     pending = None
@@ -70,7 +84,11 @@ def open_voice(root, profile):
 
     def state():
         if not closed.is_set():
-            status.set(busy or ("Listening" if listening else "Idle"))
+            value = busy or ("Listening" if listening else "Idle")
+            if status.get() != value:
+                status.set(value)
+                if on_state:
+                    on_state(value)
 
     def interrupt():
         nonlocal turn, busy, current, pending
@@ -273,6 +291,12 @@ def open_voice(root, profile):
         try:
             with profile.transaction():
                 req = voice.propose_turn(profile, text, history)
+                if (
+                    strict_only
+                    and req["operation"] == "ai-generate"
+                    and not req["content"].get("zero_cost")
+                ):
+                    raise ValueError("AI Merkezi: sıkı harcama politikası gerekli.")
             approve(req, text)
         except (ValueError, RuntimeError, OSError) as exc:
             detail.set(str(exc))
@@ -289,11 +313,14 @@ def open_voice(root, profile):
             answer = output.get("text", "") if isinstance(output, dict) else ""
             if not answer:
                 detail.set("No speakable reply")
+                state()
                 return
             answer = answer[:4096]
             history.append({"user": text, "assistant": answer})
             detail.set(answer)
-            if cfg["synthesis"] in voice.CLOUD:
+            if cfg["synthesis"] in voice.CLOUD and strict_only:
+                detail.set("Bulut sesi için doğrulanmış ücretsiz rota yok.")
+            elif cfg["synthesis"] in voice.CLOUD:
                 with profile.transaction():
                     req = voice.propose_cloud(profile, answer)
                 approve(req, answer)
@@ -309,6 +336,8 @@ def open_voice(root, profile):
         if closed.is_set():
             return
         closed.set()
+        if on_state:
+            on_state("Idle")
         held.clear()
         if timer is not None:
             panel.tk.call("after", "cancel", timer)
@@ -330,11 +359,16 @@ def open_voice(root, profile):
         timer = None
         if closed.is_set():
             return
+        if events.overflow.is_set():
+            close()
+            return
         if consent and time.monotonic() - born >= 300:
             close()
             return
         try:
-            while not closed.is_set() and not events.empty():
+            for _ in range(32):
+                if closed.is_set() or events.empty():
+                    break
                 tag, kind, value = events.get()
                 if tag is not closed and tag is not turn:
                     continue

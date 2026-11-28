@@ -223,6 +223,14 @@ def main():
                 sys.exit(1)
             return
         if args.command == "hud":
+            from .reactor.live_ui import LiveApp
+
+            try:
+                LiveApp(p).run()
+            finally:
+                p.db.close()
+            return
+        if args.command == "hud-legacy":
             from .hud import open_hud
 
             open_hud(p)

@@ -90,8 +90,8 @@
       "bom-ref": "pillow",
       "name": "Pillow",
       "version": "13.0.0",
-      "scope": "optional",
-      "description": "Optional separately installed imaging wheel. Its native libraries are outside this source distribution.",
+      "scope": "required",
+      "description": "REACTOR HUD image composition and optional CLI image operations. Native wheel components supplied separately.",
       "licenses": [
         {
           "license": {
@@ -122,7 +122,7 @@
       "name": "setuptools",
       "version": "84.2.1",
       "scope": "excluded",
-      "description": "Build backend. Runtime installation has no mandatory third-party Python package.",
+      "description": "Python build backend.",
       "licenses": [
         {
           "license": {
@@ -324,6 +324,22 @@
         }
       ],
       "description": "Linux system library used to confine generated functions, including inside WSL. Supplied separately."
+    },
+    {
+      "type": "library",
+      "bom-ref": "psutil",
+      "name": "psutil",
+      "version": "7.2.2",
+      "scope": "required",
+      "description": "Live local CPU, memory and network metrics. Version used during desktop verification.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/psutil@7.2.2"
     }
   ],
   "dependencies": [
@@ -342,7 +358,8 @@
         "eSpeak NG",
         "Piper",
         "git",
-        "libseccomp"
+        "libseccomp",
+        "psutil"
       ]
     },
     {

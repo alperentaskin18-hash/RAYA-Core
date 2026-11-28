@@ -10,7 +10,7 @@ from .ai_settings import open_settings
 from .control import action
 
 
-def open_center(root, p):
+def open_center(root, p, *, background=None):
     if "cloud" in root.children:
         root.children["cloud"].lift()
         return
@@ -53,7 +53,9 @@ def open_center(root, p):
     def show(value):
         output.configure(state="normal")
         output.delete("1.0", "end")
-        output.insert("1.0", json.dumps(value, ensure_ascii=False, indent=2))
+        if any(vault.contains(value, secret) for secret in vault.values(p)):
+            value = "[redacted]"
+        output.insert("1.0", json.dumps(value, ensure_ascii=False, indent=2)[:131072])
         output.configure(state="disabled")
 
     def refresh(*unused):
@@ -121,6 +123,13 @@ def open_center(root, p):
                 if raw is None:
                     return
                 params = json.loads(raw)
+            if background:
+                def complete(value):
+                    if panel.winfo_exists():
+                        refresh()
+                        show(value)
+                background(cmd, params, complete)
+                return
             with p.transaction():
                 if any(vault.contains(params, v) for v in vault.values(p)):
                     raise ValueError("protected value in command")

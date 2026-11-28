@@ -21,6 +21,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install ".[images,voice]"
+      - name: Verify installed REACTOR assets outside the checkout import path
+        run: python -I -c "from importlib.resources import files; from raya.reactor.live_ui import Core; root=files('raya.reactor'); assert all(root.joinpath(n).is_file() for n in ('reference.png','reactor_art.png','reactor_clean.png')); assert Core().render(0).size == (348,348)"
       - if: runner.os == 'Linux'
         run: xvfb-run -a python -m unittest discover -s tests -v
       - if: runner.os == 'Windows'

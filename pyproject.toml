@@ -7,7 +7,7 @@ name = "raya-independent-core"
 version = "0.1.0"
 description = "Local assistant with reviewable operations and an optional loopback AI provider"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Pillow>=10", "psutil>=5.9"]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 
@@ -19,7 +19,8 @@ voice = ["sounddevice==0.5.6", "pocketsphinx==5.0.4", "vosk==0.3.45"]
 raya = "raya.__main__:main"
 
 [tool.setuptools]
-packages = ["raya"]
+packages = ["raya", "raya.reactor"]
 
 [tool.setuptools.package-data]
 raya = ["speech.ps1"]
+"raya.reactor" = ["*.png"]

@@ -8,6 +8,13 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = """
+raya/reactor/__init__.py raya/reactor/live_ui.py raya/reactor/pages.py raya/reactor/operator.py
+raya/reactor/raya_hud.py raya/reactor/services.py raya/reactor/weather.py
+raya/reactor/reference.png raya/reactor/reactor_art.png raya/reactor/reactor_clean.png
+tools/reactor_acceptance.py tests/test_reactor.py
+evidence/day08/01-home.png evidence/day08/02-skills.png evidence/day08/03-tasks.png
+evidence/day08/04-ai.png evidence/day08/05-workflows.png evidence/day08/06-security.png
+evidence/day08/07-settings.png evidence/day08/measurements.json
 LICENSE NOTICE .gitattributes .github/workflows/ci.yml .gitignore CONTRIBUTING.md PROVIDERS.md CLOUD.md VOICE.md PROVENANCE.md README.md
 RELEASE-NOTES.md SECURITY.md pyproject.toml raya/__init__.py
 development_targets/percent.py development_targets/distinct.py development_targets/nonempty_lines.py

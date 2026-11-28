@@ -307,14 +307,15 @@ class VoiceTests(unittest.TestCase):
                 interrupted.set()
             chunks.close()
 
-        def until(f):
+        def until(f, transition):
             end = time.monotonic() + 3
             while time.monotonic() < end:
                 root.update()
                 if f():
                     return
                 time.sleep(0.01)
-            self.fail("voice HUD transition timed out")
+            states = [r["state"] for r in self.p.all("requests").values()]
+            self.fail(f"voice HUD transition timed out at {transition}, request states {states}")
 
         answers = iter((False, True, True, True))
         with (
@@ -333,15 +334,15 @@ class VoiceTests(unittest.TestCase):
             buttons["Enable session"].invoke()
             self.assertFalse(record)
             buttons["Enable session"].invoke()
-            until(lambda: bool(record))
+            until(lambda: bool(record), "capture start")
             record[0]("final", "background words")
             record[0]("final", "hey raya hello")
-            until(lambda: entry.get() == "hello")
+            until(lambda: entry.get() == "hello", "wake transcript")
             self.assertFalse(self.p.all("requests"))
             buttons["Review turn"].invoke()
-            until(playing.is_set)
+            until(playing.is_set, "approved reply playback")
             record[0]("partial", "hey raya")
-            until(interrupted.is_set)
+            until(interrupted.is_set, "barge-in")
             copies = []
 
             def copy(command, data):
@@ -354,9 +355,9 @@ class VoiceTests(unittest.TestCase):
                 patch("raya.desktop.perform", copy),
             ):
                 record[0]("final", "hey raya copy hello")
-                until(lambda: entry.get() == "copy hello")
+                until(lambda: entry.get() == "copy hello", "clipboard transcript")
                 buttons["Review turn"].invoke()
-                until(lambda: bool(copies))
+                until(lambda: bool(copies), "approved clipboard action")
                 self.assertEqual(
                     copies, [(threading.get_ident(), "copy", {"text": "hello"})]
                 )
